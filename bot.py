@@ -41,6 +41,7 @@ LIKES_FILE = os.path.join(DATA_DIR, "likes.json")
 MATCHES_FILE = os.path.join(DATA_DIR, "matches.json")
 REPORTS_FILE = os.path.join(DATA_DIR, "reports.json")
 SETTINGS_FILE = os.path.join(DATA_DIR, "settings.json")
+EMOJI_FILE = os.path.join(DATA_DIR, "emoji.json")
 
 # ═══════════════════════════════════════════════════════════
 #  STORAGE
@@ -114,6 +115,8 @@ settings: dict = _load(SETTINGS_FILE, {
     ),
 })
 
+emoji_map: dict = _load(EMOJI_FILE, {})
+
 waiting: dict = {}  # uid -> step str or dict
 
 if not BOT_TOKEN:
@@ -129,6 +132,100 @@ LOOKING_LABEL = {
     "dating": "💕 សង្សារ",
     "both": "✨ មិត្ត + សង្សារ",
 }
+
+
+def save_emoji():
+    _save(EMOJI_FILE, emoji_map)
+
+
+EMOJI_KEYS = [
+    ("search", "🔍 ស្វែងរក"),
+    ("matches", "💬 Matches"),
+    ("profile", "👤 Profile"),
+    ("edit", "⚙️ កែ Profile"),
+    ("pause", "⏸ ផ្អាក"),
+    ("help", "📢 ជួយ"),
+    ("like", "💚 Like"),
+    ("next", "⏭ បន្ទាប់"),
+    ("report", "🚫 Report"),
+    ("home", "🏠 ម៉ឺនុយ"),
+    ("admin", "🛠 Admin"),
+    ("broadcast", "📢 ផ្សព្វផ្សាយ"),
+    ("emoji_setup", "😀 Setup Emoji"),
+]
+
+
+def _kb_btn(text, emoji_key=None):
+    if emoji_key and emoji_map.get(emoji_key):
+        try:
+            return types.KeyboardButton(text, icon_custom_emoji_id=str(emoji_map[emoji_key]))
+        except TypeError:
+            pass
+    return types.KeyboardButton(text)
+
+
+def admin_kb():
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    kb.row(_kb_btn("😀 Setup Emoji", "emoji_setup"), _kb_btn("📢 ផ្សព្វផ្សាយ", "broadcast"))
+    kb.row(_kb_btn("📊 Stats", "admin"), _kb_btn("✏️ កែ Welcome", "edit"))
+    kb.row(_kb_btn("🏠 ម៉ឺនុយ", "home"))
+    return kb
+
+
+def emoji_setup_kb():
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
+    for key, label in EMOJI_KEYS:
+        has = "✅" if emoji_map.get(key) else "⭕"
+        kb.row(f"{has} {label}")
+    kb.row("🗑 លុប emoji ទាំងអស់")
+    kb.row("🏠 ម៉ឺនុយ")
+    return kb
+
+
+def _extract_custom_emoji_id(message):
+    for ent in list(message.entities or []) + list(message.caption_entities or []):
+        if getattr(ent, "type", None) == "custom_emoji":
+            eid = getattr(ent, "custom_emoji_id", None)
+            if eid:
+                return str(eid)
+    return None
+
+
+def _do_broadcast(admin_uid, message):
+    ids, seen = [], set()
+    for k, u in users.items():
+        try:
+            i = int(u.get("id") or k)
+        except (TypeError, ValueError):
+            continue
+        if i in seen or i == admin_uid:
+            continue
+        seen.add(i)
+        ids.append(i)
+    total = len(ids)
+    bot.send_message(admin_uid, f"📢 កំពុងផ្ញើទៅ <b>{total}</b> users…", reply_markup=admin_kb())
+    sent = fail = 0
+    for n, to in enumerate(ids, 1):
+        try:
+            if message.content_type == "photo":
+                bot.send_photo(to, message.photo[-1].file_id, caption=message.caption or "")
+            elif message.content_type == "video":
+                bot.send_video(to, message.video.file_id, caption=message.caption or "")
+            elif message.content_type == "voice":
+                bot.send_voice(to, message.voice.file_id, caption=message.caption or "")
+            else:
+                bot.send_message(to, message.text or "", parse_mode="HTML")
+            sent += 1
+        except Exception:
+            fail += 1
+        time.sleep(0.035)
+        if n % 50 == 0:
+            try:
+                bot.send_message(admin_uid, f"⏳ {n}/{total} ✅{sent} ❌{fail}")
+            except Exception:
+                pass
+    bot.send_message(admin_uid, f"✅ រួចរាល់ — ផ្ញើ {sent} · បរាជ័យ {fail}", reply_markup=admin_kb())
+
 
 
 def uid_s(uid) -> str:
@@ -166,14 +263,14 @@ def main_kb(uid=None):
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     u = get_user(uid) if uid else None
     if u and profile_complete(u):
-        kb.row("🔍 ស្វែងរក", "💬 Matches")
-        kb.row("👤 Profile ខ្ញុំ", "⚙️ កែ Profile")
-        kb.row("⏸ ផ្អាក / បន្ត", "📢 ជួយ")
+        kb.row(_kb_btn("🔍 ស្វែងរក", "search"), _kb_btn("💬 Matches", "matches"))
+        kb.row(_kb_btn("👤 Profile ខ្ញុំ", "profile"), _kb_btn("⚙️ កែ Profile", "edit"))
+        kb.row(_kb_btn("⏸ ផ្អាក / បន្ត", "pause"), _kb_btn("📢 ជួយ", "help"))
     else:
-        kb.row("✏️ ចាប់ផ្តើម Profile")
-        kb.row("📢 ជួយ")
+        kb.row(_kb_btn("✏️ ចាប់ផ្តើម Profile", "edit"))
+        kb.row(_kb_btn("📢 ជួយ", "help"))
     if uid and is_admin(uid):
-        kb.row("🛠 Admin")
+        kb.row(_kb_btn("🛠 Admin", "admin"))
     return kb
 
 
@@ -201,8 +298,8 @@ def looking_kb():
 
 def browse_kb():
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=3)
-    kb.row("💚 Like", "⏭ បន្ទាប់", "🚫 Report")
-    kb.row("🏠 ម៉ឺនុយ")
+    kb.row(_kb_btn("💚 Like", "like"), _kb_btn("⏭ បន្ទាប់", "next"), _kb_btn("🚫 Report", "report"))
+    kb.row(_kb_btn("🏠 ម៉ឺនុយ", "home"))
     return kb
 
 
@@ -352,7 +449,7 @@ def cmd_admin(message):
         f"👥 Users: <b>{n}</b>\n"
         f"💚 Matches: <b>{m}</b>\n"
         f"🚩 Reports: <b>{len(reports)}</b>",
-        reply_markup=main_kb(message.from_user.id),
+        reply_markup=admin_kb(),
     )
 
 
@@ -527,7 +624,145 @@ def list_matches(message):
 def admin_panel(message):
     if not is_admin(message.from_user.id):
         return
-    cmd_admin(message)
+    uid = message.from_user.id
+    n = len(users)
+    mcount = sum(len(v) for v in matches.values()) // 2
+    emo_n = sum(1 for v in emoji_map.values() if v)
+    bot.send_message(
+        uid,
+        "🛠 <b>Admin — %s</b>\n👥 Users: <b>%s</b>\n💚 Matches: <b>%s</b>\n🚩 Reports: <b>%s</b>\n😀 Emoji: <b>%s</b>/%s"
+        % (BOT_NAME, n, mcount, len(reports), emo_n, len(EMOJI_KEYS)),
+        reply_markup=admin_kb(),
+    )
+
+
+@bot.message_handler(func=lambda m: m.text == "📊 Stats")
+def admin_stats(message):
+    if not is_admin(message.from_user.id):
+        return
+    admin_panel(message)
+
+
+@bot.message_handler(func=lambda m: m.text == "😀 Setup Emoji")
+def admin_emoji_setup(message):
+    if not is_admin(message.from_user.id):
+        return
+    waiting[message.from_user.id] = "emoji_menu"
+    lines = ["😀 <b>Setup Premium Emoji</b>\n", "ជ្រើសប៊ូតុង រួចផ្ញើ custom emoji (Premium):\n"]
+    for key, label in EMOJI_KEYS:
+        eid = emoji_map.get(key)
+        extra = (" · <code>%s</code>" % eid) if eid else ""
+        lines.append("%s <code>%s</code> — %s%s" % ("✅" if eid else "⭕", key, label, extra))
+    bot.send_message(message.from_user.id, "\n".join(lines), reply_markup=emoji_setup_kb())
+
+
+@bot.message_handler(func=lambda m: m.text == "🗑 លុប emoji ទាំងអស់")
+def admin_emoji_clear(message):
+    if not is_admin(message.from_user.id):
+        return
+    emoji_map.clear()
+    save_emoji()
+    bot.send_message(message.from_user.id, "លុប emoji ទាំងអស់ហើយ។", reply_markup=emoji_setup_kb())
+
+
+@bot.message_handler(func=lambda m: m.text == "📢 ផ្សព្វផ្សាយ")
+def admin_broadcast_start(message):
+    if not is_admin(message.from_user.id):
+        return
+    waiting[message.from_user.id] = "await_broadcast"
+    bot.send_message(
+        message.from_user.id,
+        "📢 <b>ផ្សព្វផ្សាយ</b>\nផ្ញើ text / photo / video / voice\n❌ បោះបង់ ដើម្បីឈប់។",
+        reply_markup=cancel_kb(),
+    )
+
+
+@bot.message_handler(func=lambda m: m.text == "✏️ កែ Welcome")
+def admin_welcome_edit(message):
+    if not is_admin(message.from_user.id):
+        return
+    waiting[message.from_user.id] = "await_welcome"
+    bot.send_message(
+        message.from_user.id,
+        "✏️ ផ្ញើ Welcome ថ្មី:\n\n" + (settings.get("welcome", "")[:500]),
+        reply_markup=cancel_kb(),
+    )
+
+
+@bot.message_handler(func=lambda m: is_admin(m.from_user.id) and waiting.get(m.from_user.id) == "emoji_menu")
+def emoji_pick_key(message):
+    uid = message.from_user.id
+    text = (message.text or "").strip()
+    if text in ("🏠 ម៉ឺនុយ", "❌ បោះបង់"):
+        waiting.pop(uid, None)
+        bot.send_message(uid, "ម៉ឺនុយ", reply_markup=main_kb(uid))
+        return
+    if text == "🗑 លុប emoji ទាំងអស់":
+        return admin_emoji_clear(message)
+    chosen = None
+    for key, label in EMOJI_KEYS:
+        if label in text:
+            chosen = key
+            break
+    if not chosen:
+        bot.send_message(uid, "ជ្រើសពី list។", reply_markup=emoji_setup_kb())
+        return
+    waiting[uid] = {"step": "await_emoji", "key": chosen}
+    bot.send_message(
+        uid,
+        "ផ្ញើ Premium custom emoji សម្រាប់ <code>%s</code> ឬ paste id។" % chosen,
+        reply_markup=cancel_kb(),
+    )
+
+
+@bot.message_handler(
+    func=lambda m: isinstance(waiting.get(m.from_user.id), dict)
+    and waiting.get(m.from_user.id, {}).get("step") == "await_emoji",
+    content_types=["text"],
+)
+def emoji_set_id(message):
+    uid = message.from_user.id
+    if not is_admin(uid):
+        return
+    key = (waiting.get(uid) or {}).get("key")
+    eid = _extract_custom_emoji_id(message)
+    if not eid:
+        raw = (message.text or "").strip()
+        if raw.isdigit() and len(raw) >= 10:
+            eid = raw
+        else:
+            bot.send_message(uid, "រកមិនឃើញ custom emoji។", reply_markup=cancel_kb())
+            return
+    emoji_map[key] = eid
+    save_emoji()
+    waiting[uid] = "emoji_menu"
+    bot.send_message(uid, "✅ <code>%s</code> = <code>%s</code>" % (key, eid), reply_markup=emoji_setup_kb())
+
+
+@bot.message_handler(func=lambda m: waiting.get(m.from_user.id) == "await_welcome", content_types=["text"])
+def set_welcome(message):
+    if not is_admin(message.from_user.id):
+        return
+    if (message.text or "").strip() == "❌ បោះបង់":
+        return cmd_cancel(message)
+    settings["welcome"] = message.text or ""
+    _save(SETTINGS_FILE, settings)
+    waiting.pop(message.from_user.id, None)
+    bot.send_message(message.from_user.id, "✅ Welcome រក្សាទុកហើយ។", reply_markup=admin_kb())
+
+
+@bot.message_handler(
+    func=lambda m: waiting.get(m.from_user.id) == "await_broadcast",
+    content_types=["text", "photo", "video", "voice"],
+)
+def broadcast_payload(message):
+    if not is_admin(message.from_user.id):
+        return
+    if (message.text or "").strip() == "❌ បោះបង់":
+        return cmd_cancel(message)
+    waiting.pop(message.from_user.id, None)
+    threading.Thread(target=_do_broadcast, args=(message.from_user.id, message), daemon=True).start()
+
 
 
 # ── wizard text ──
@@ -624,6 +859,8 @@ def wizard_looking(message):
 @bot.message_handler(content_types=["photo"])
 def on_photo(message):
     uid = message.from_user.id
+    if waiting.get(uid) == "await_broadcast" and is_admin(uid):
+        return broadcast_payload(message)
     if waiting.get(uid) != "photos":
         return
     u = ensure_user(message)
