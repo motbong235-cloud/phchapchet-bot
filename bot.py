@@ -283,24 +283,20 @@ def is_admin(uid) -> bool:
 def profile_complete(u: dict) -> bool:
     if not u:
         return False
-    need = ("name", "age", "gender", "looking", "city", "bio")
-    return all(u.get(k) for k in need) and bool(u.get("photos"))
+    name = (u.get("name") or u.get("tg_name") or "").strip()
+    return bool(name) and bool(u.get("photos"))
 
 
 def main_kb(uid=None):
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    u = get_user(uid) if uid else None
     url = miniapp_url() if "miniapp_url" in dir() else (PUBLIC_BASE_URL.rstrip("/") + "/miniapp" if PUBLIC_BASE_URL else "")
     if url:
         try:
-            kb.row(types.KeyboardButton(text="📱 បើក Mini App", web_app=types.WebAppInfo(url=url)))
+            kb.row(types.KeyboardButton(text="📱 Open Mini App", web_app=types.WebAppInfo(url=url)))
         except Exception:
             pass
-    if u and profile_complete(u):
-        kb.row(_kb_btn("🔍 ស្វែងរក", "search"), _kb_btn("💬 Matches", "matches"))
-        kb.row(_kb_btn("👤 Profile ខ្ញុំ", "profile"), _kb_btn("⚙️ កែ Profile", "edit"))
-    else:
-        kb.row(_kb_btn("✏️ ចាប់ផ្តើម Profile", "edit"))
+    kb.row(_kb_btn("🔍 ស្វែងរកមិត្ត", "search"), _kb_btn("💬 Matches", "matches"))
+    kb.row(_kb_btn("👤 Profile", "profile"), _kb_btn("🏠 ម៉ឺនុយ", "home"))
     if uid and is_admin(uid):
         kb.row(_kb_btn("🛠 Admin", "admin"))
     return kb
@@ -328,10 +324,19 @@ def looking_kb():
     return kb
 
 
-def browse_kb():
-    kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=3)
-    kb.row(_kb_btn("💚 Like", "like"), _kb_btn("⏭ បន្ទាប់", "next"), _kb_btn("🚫 Report", "report"))
-    kb.row(_kb_btn("🏠 ម៉ឺនុយ", "home"))
+def browse_kb(target_id=None):
+    kb = types.InlineKeyboardMarkup(row_width=2)
+    tid = str(target_id or "")
+    kb.row(
+        types.InlineKeyboardButton("Like 💗", callback_data="like:%s" % tid),
+        types.InlineKeyboardButton("Next 🔍", callback_data="next:%s" % tid),
+    )
+    return kb
+
+
+def browse_reply_kb():
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    kb.row(_kb_btn("🔍 ស្វែងរកមិត្ត", "search"), _kb_btn("🏠 ម៉ឺនុយ", "home"))
     return kb
 
 
@@ -358,17 +363,24 @@ def match_compat(a: dict, b: dict) -> bool:
 
 
 def format_profile(u: dict, hide_id=True) -> str:
-    g = GENDER_LABEL.get(u.get("gender", ""), u.get("gender", "—"))
-    look = LOOKING_LABEL.get(u.get("looking", ""), u.get("looking", "—"))
-    lines = [
-        f"👤 <b>{u.get('name', '—')}</b>, {u.get('age', '—')}",
-        f"{g} · {look}",
-        f"📍 {u.get('city', '—')}",
-        "",
-        f"{u.get('bio', '')}",
-    ]
-    if not hide_id and u.get("username"):
-        lines.append(f"\n@{u['username']}")
+    name = u.get("name") or u.get("tg_name") or "—"
+    lines = ["<b>%s</b>" % name]
+    if u.get("gender"):
+        lines.append("• ភេទ: %s" % GENDER_LABEL.get(u.get("gender"), u.get("gender")))
+    if u.get("age"):
+        lines.append("• អាយុ: %s" % u.get("age"))
+    if u.get("city"):
+        lines.append("• ទីកន្លែង: %s" % u.get("city"))
+    if u.get("looking"):
+        lines.append("• ស្វែងរក: %s" % LOOKING_LABEL.get(u.get("looking"), u.get("looking")))
+    if u.get("bio"):
+        lines.append("")
+        lines.append(str(u.get("bio"))[:200])
+    if not any([u.get("gender"), u.get("age"), u.get("city"), u.get("bio")]):
+        lines.append("មិនទាន់មានប្រវត្តិរូប")
+    if u.get("username"):
+        lines.append("")
+        lines.append("@" + str(u["username"]))
     return "\n".join(lines)
 
 
@@ -382,20 +394,15 @@ def send_profile_card(to_uid, profile: dict, with_browse=False):
         log.debug("card sync: %s", e)
     text = format_profile(profile)
     photos = profile.get("photos") or []
-    kb = browse_kb() if with_browse else main_kb(to_uid)
+    kb = browse_kb(profile.get("id")) if with_browse else None
     try:
         if photos:
-            # send first photo with caption
             bot.send_photo(to_uid, photos[0], caption=text[:1024], reply_markup=kb)
-            for p in photos[1:3]:
-                try:
-                    bot.send_photo(to_uid, p)
-                except Exception:
-                    pass
         else:
             bot.send_message(to_uid, text, reply_markup=kb)
     except Exception as e:
         log.warning("send_profile_card: %s", e)
+
 
 
 def sync_tg_profile_photos(tg_uid, force=False) -> list:
@@ -441,15 +448,19 @@ def ensure_user(msg) -> dict:
             "paused": False,
             "photos": [],
             "photos_from_tg": True,
+            "name": (msg.from_user.first_name or msg.from_user.username or "User")[:48],
         }
         save_users()
     else:
         users[uid]["username"] = msg.from_user.username or users[uid].get("username", "")
         users[uid]["tg_name"] = (msg.from_user.first_name or users[uid].get("tg_name") or "")[:64]
+        if not (users[uid].get("name") or "").strip():
+            users[uid]["name"] = (msg.from_user.first_name or msg.from_user.username or "User")[:48]
     try:
         sync_tg_profile_photos(msg.from_user.id)
     except Exception as e:
         log.debug("ensure sync photos: %s", e)
+    save_users()
     return users[uid]
 
 
@@ -510,12 +521,34 @@ def cmd_start(message):
     u = ensure_user(message)
     uid = message.from_user.id
     waiting.pop(uid, None)
-    welcome = settings.get("welcome", f"សូមស្វាគមន៍ {BOT_NAME}")
-    if PUBLIC_BASE_URL:
-        welcome += "\n\n📱 ចុច <b>បើក Mini App</b> ដើម្បីស្វែងរកតាមអេក្រង់ពេញ"
-    bot.send_message(uid, welcome, reply_markup=main_kb(uid))
-    if profile_complete(u):
-        bot.send_message(uid, "✅ Profile របស់អ្នករួចរាល់ — ចុច <b>🔍 ស្វែងរក</b>", reply_markup=main_kb(uid))
+    first = (message.from_user.first_name or u.get("name") or "មិត្ត").strip()
+    caption = settings.get("welcome") or (
+        "សួស្តី <b>%s</b> !!\n\n"
+        "សូមស្វាគមន៍មកកាន់ <b>%s</b>\n\n"
+        "ឧទ្ទិសមែន? មកកក់ក្តៅដាក់ស្នេហ៍ 😊 ស្វែងរកមិត្ត\n"
+        "មិត្តភក្តិថ្មីៗ រឺស្វែងរកគូរស្នេហ៍ តាមរយៈអ្នកក្នុងវិស័យ\n"
+        "ទេព្តា នាងសោភា 🫶❤️\n\n"
+        "ចុចប៊ូតុងខាងក្រោម ដើម្បីចូលលេង 👇"
+    ) % (first, BOT_NAME)
+    caption = caption.replace("{name}", first)
+    url = miniapp_url()
+    ikb = types.InlineKeyboardMarkup()
+    if url:
+        try:
+            ikb.add(types.InlineKeyboardButton("Open Mini App · Login", web_app=types.WebAppInfo(url=url)))
+        except Exception:
+            ikb.add(types.InlineKeyboardButton("Open Mini App · Login", url=url))
+    ikb.add(types.InlineKeyboardButton("ស្វែងរកមិត្ត 👥💗", callback_data="search_friends"))
+    photo = (settings.get("welcome_photo") or os.environ.get("WELCOME_PHOTO") or "").strip()
+    try:
+        if photo:
+            bot.send_photo(uid, photo, caption=caption[:1024], reply_markup=ikb)
+        else:
+            bot.send_message(uid, caption, reply_markup=ikb)
+    except Exception as e:
+        log.warning("welcome: %s", e)
+        bot.send_message(uid, caption, reply_markup=ikb)
+    bot.send_message(uid, "👇 ម៉ឺនុយ", reply_markup=main_kb(uid))
 
 
 @bot.message_handler(commands=["admin"])
@@ -544,11 +577,23 @@ def cmd_cancel(message):
 def start_profile(message):
     ensure_user(message)
     uid = message.from_user.id
-    waiting[uid] = "name"
-    bot.send_message(uid, "✏️ <b>ឈ្មោះបង្ហាញ</b>\nសរសេរឈ្មោះដែលអ្នកចង់ឲ្យគេឃើញ:", reply_markup=cancel_kb())
+    url = miniapp_url()
+    msg = (
+        "ប្រវត្តិរូបយកពី <b>Telegram Profile</b> ស្វ័យប្រវត្តិ។\n"
+        "មិនចាំបាច់បំពេញ form ក្នុង bot ទេ។\n\n"
+        "ចុច <b>Open Mini App</b> ឬ <b>ស្វែងរកមិត្ត</b>។"
+    )
+    ikb = types.InlineKeyboardMarkup()
+    if url:
+        try:
+            ikb.add(types.InlineKeyboardButton("Open Mini App · Login", web_app=types.WebAppInfo(url=url)))
+        except Exception:
+            pass
+    ikb.add(types.InlineKeyboardButton("ស្វែងរកមិត្ត 👥💗", callback_data="search_friends"))
+    bot.send_message(uid, msg, reply_markup=ikb)
 
 
-@bot.message_handler(func=lambda m: m.text == "👤 Profile ខ្ញុំ")
+@bot.message_handler(func=lambda m: m.text in ("👤 Profile ខ្ញុំ", "👤 Profile"))
 def my_profile(message):
     uid = message.from_user.id
     u = ensure_user(message)
@@ -596,12 +641,12 @@ def go_home(message):
     bot.send_message(message.chat.id, "ម៉ឺនុយ", reply_markup=main_kb(message.from_user.id))
 
 
-@bot.message_handler(func=lambda m: m.text == "🔍 ស្វែងរក")
+@bot.message_handler(func=lambda m: m.text in ("🔍 ស្វែងរក", "🔍 ស្វែងរកមិត្ត"))
 def browse(message):
     uid = message.from_user.id
     u = ensure_user(message)
     if not profile_complete(u):
-        bot.send_message(uid, "សូមបង្កើត Profile ជាមុនសិន។", reply_markup=main_kb(uid))
+        bot.send_message(uid, "⚠️ ដាក់រូប Profile ក្នុង Telegram សិន។", reply_markup=main_kb(uid))
         return
     if u.get("paused"):
         bot.send_message(uid, "Profile កំពុងផ្អាក — ចុច ⏸ ផ្អាក / បន្ត ដើម្បីបើក។", reply_markup=main_kb(uid))
@@ -1036,6 +1081,80 @@ def fallback(message):
 
 #  FLASK HEALTH (Render)
 # ═══════════════════════════════════════════════════════════
+
+
+@bot.callback_query_handler(func=lambda c: (c.data or "").startswith(("like:", "next:", "search_friends")))
+def cb_browse(call):
+    uid = call.from_user.id
+    data = call.data or ""
+    try:
+        bot.answer_callback_query(call.id)
+    except Exception:
+        pass
+    u = ensure_user(call)
+    if data == "search_friends":
+        if not u.get("photos"):
+            bot.send_message(uid, "⚠️ ដាក់រូប Profile ក្នុង Telegram សិន រួច /start ម្តងទៀត។", reply_markup=main_kb(uid))
+            return
+        cand = next_candidate(uid_s(uid))
+        if not cand:
+            bot.send_message(uid, "ពេលនេះមិនមាន Profile ទេ។ សាកម្តងទៀតក្រោយ។", reply_markup=main_kb(uid))
+            return
+        waiting[uid] = {"step": "browse", "target": cand}
+        bot.send_message(uid, "🔍 កំពុងស្វែងរកមិត្ត…", reply_markup=browse_reply_kb())
+        send_profile_card(uid, users[cand], with_browse=True)
+        return
+    if data.startswith("like:"):
+        target_s = uid_s(data.split(":", 1)[-1])
+        if target_s not in users:
+            bot.send_message(uid, "Profile នេះមិនមានទៀតទេ។")
+            return
+        matched = add_like(uid_s(uid), target_s)
+        other = users.get(target_s) or {}
+        if matched:
+            un = ("@" + other["username"]) if other.get("username") else ""
+            bot.send_message(
+                uid,
+                "🎉 <b>Match!</b> អ្នក និង <b>%s</b> Like គ្នា!\n%s"
+                % (other.get("name") or other.get("tg_name"), un),
+                reply_markup=main_kb(uid),
+            )
+            try:
+                mu = users.get(uid_s(uid)) or {}
+                bot.send_message(
+                    int(other.get("id") or target_s),
+                    "🎉 <b>Match!</b> អ្នក និង <b>%s</b> Like គ្នា!"
+                    % (mu.get("name") or mu.get("tg_name")),
+                )
+            except Exception:
+                pass
+        else:
+            try:
+                bot.send_message(
+                    int(other.get("id") or target_s),
+                    "💗 <b>%s</b> បាន Like អ្នក! ចុច ស្វែងរកមិត្ត ដើម្បី Like វិញ។"
+                    % (u.get("name") or u.get("tg_name")),
+                )
+            except Exception:
+                pass
+        cand = next_candidate(uid_s(uid))
+        if cand:
+            waiting[uid] = {"step": "browse", "target": cand}
+            send_profile_card(uid, users[cand], with_browse=True)
+        else:
+            waiting.pop(uid, None)
+            bot.send_message(uid, "អស់ Profile ហើយ។", reply_markup=main_kb(uid))
+        return
+    if data.startswith("next:"):
+        cand = next_candidate(uid_s(uid))
+        if not cand:
+            waiting.pop(uid, None)
+            bot.send_message(uid, "អស់ Profile ហើយ។", reply_markup=main_kb(uid))
+            return
+        waiting[uid] = {"step": "browse", "target": cand}
+        send_profile_card(uid, users[cand], with_browse=True)
+        return
+
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 
 # ═══════════════════════════════════════════════════════════
