@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="km">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>ភ្ជាប់ចិត្ត · PhchapChet</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="top">
+      <div class="brand">💕 ភ្ជាប់ចិត្ត</div>
+      <div class="tabs">
+        <button type="button" class="tab on" data-tab="discover">ស្វែងរក</button>
+        <button type="button" class="tab" data-tab="matches">Matches</button>
+        <button type="button" class="tab" data-tab="me">ខ្ញុំ</button>
+      </div>
+    </header>
+
+    <section id="view-discover" class="view">
+      <div id="card" class="card empty">
+        <div class="photo" id="photo"></div>
+        <div class="meta">
+          <h2 id="name">—</h2>
+          <p id="info" class="sub"></p>
+          <p id="bio" class="bio"></p>
+        </div>
+      </div>
+      <div class="actions" id="actions" hidden>
+        <button type="button" class="round skip" id="btn-skip" title="បន្ទាប់">⏭</button>
+        <button type="button" class="round like" id="btn-like" title="Like">💚</button>
+      </div>
+      <p id="discover-msg" class="hint"></p>
+    </section>
+
+    <section id="view-matches" class="view hidden">
+      <div id="match-list" class="list"></div>
+      <p id="match-empty" class="hint">មិនទាន់មាន Match</p>
+    </section>
+
+    <section id="view-me" class="view hidden">
+      <div id="me-card" class="card me"></div>
+      <p class="hint">រូបមកពី Telegram Profile · កែ Profile ក្នុង bot chat</p>
+    </section>
+
+    <div id="toast" class="toast hidden"></div>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

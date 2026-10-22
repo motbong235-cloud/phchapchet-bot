@@ -16,12 +16,16 @@ from datetime import datetime
 
 import telebot
 from telebot import types
-from flask import Flask
+from flask import Flask, request, jsonify, send_file, Response
+import hmac
+import hashlib
+from urllib.parse import parse_qsl
 
 # ═══════════════════════════════════════════════════════════
 #  CONFIG
 # ═══════════════════════════════════════════════════════════
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
+PUBLIC_BASE_URL = (os.environ.get("PUBLIC_BASE_URL") or os.environ.get("RENDER_EXTERNAL_URL") or "").rstrip("/")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "0") or 0)
 DATA_DIR = os.environ.get("DATA_DIR", "/var/data")
 BOT_NAME = "ភ្ជាប់ចិត្ត"
@@ -272,6 +276,12 @@ def profile_complete(u: dict) -> bool:
 def main_kb(uid=None):
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     u = get_user(uid) if uid else None
+    url = miniapp_url() if "miniapp_url" in dir() else (PUBLIC_BASE_URL.rstrip("/") + "/miniapp" if PUBLIC_BASE_URL else "")
+    if url:
+        try:
+            kb.row(types.KeyboardButton(text="📱 បើក Mini App", web_app=types.WebAppInfo(url=url)))
+        except Exception:
+            pass
     if u and profile_complete(u):
         kb.row(_kb_btn("🔍 ស្វែងរក", "search"), _kb_btn("💬 Matches", "matches"))
         kb.row(_kb_btn("👤 Profile ខ្ញុំ", "profile"), _kb_btn("⚙️ កែ Profile", "edit"))
@@ -486,7 +496,10 @@ def cmd_start(message):
     u = ensure_user(message)
     uid = message.from_user.id
     waiting.pop(uid, None)
-    bot.send_message(uid, settings.get("welcome", f"សូមស្វាគមន៍ {BOT_NAME}"), reply_markup=main_kb(uid))
+    welcome = settings.get("welcome", f"សូមស្វាគមន៍ {BOT_NAME}")
+    if PUBLIC_BASE_URL:
+        welcome += "\n\n📱 ចុច <b>បើក Mini App</b> ដើម្បីស្វែងរកតាមអេក្រង់ពេញ"
+    bot.send_message(uid, welcome, reply_markup=main_kb(uid))
     if profile_complete(u):
         bot.send_message(uid, "✅ Profile របស់អ្នករួចរាល់ — ចុច <b>🔍 ស្វែងរក</b>", reply_markup=main_kb(uid))
 
@@ -1006,9 +1019,241 @@ def fallback(message):
 
 
 # ═══════════════════════════════════════════════════════════
+
 #  FLASK HEALTH (Render)
 # ═══════════════════════════════════════════════════════════
-app = Flask(__name__)
+app = Flask(__name__, static_folder="static", static_url_path="/static")
+
+# ═══════════════════════════════════════════════════════════
+#  TELEGRAM MINI APP API
+# ═══════════════════════════════════════════════════════════
+
+
+def _public_profile(u: dict) -> dict:
+    if not u:
+        return {}
+    return {
+        "id": u.get("id"),
+        "name": u.get("name") or u.get("tg_name") or "—",
+        "age": u.get("age"),
+        "gender": u.get("gender"),
+        "gender_label": GENDER_LABEL.get(u.get("gender", ""), u.get("gender") or ""),
+        "looking": u.get("looking"),
+        "looking_label": LOOKING_LABEL.get(u.get("looking", ""), u.get("looking") or ""),
+        "city": u.get("city") or "",
+        "bio": u.get("bio") or "",
+        "photos": list(u.get("photos") or [])[:3],
+        "username": u.get("username") or "",
+        "complete": profile_complete(u),
+    }
+
+
+def _validate_init_data(init_data: str) -> dict | None:
+    """Validate Telegram WebApp initData. Returns user dict or None."""
+    if not init_data or not BOT_TOKEN:
+        return None
+    try:
+        parsed = dict(parse_qsl(init_data, keep_blank_values=True))
+        recv_hash = parsed.pop("hash", None)
+        if not recv_hash:
+            return None
+        data_check = "\n".join("%s=%s" % (k, parsed[k]) for k in sorted(parsed.keys()))
+        secret = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
+        calc = hmac.new(secret, data_check.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(calc, recv_hash):
+            return None
+        import json as _json
+        user = _json.loads(parsed.get("user") or "{}")
+        if not user.get("id"):
+            return None
+        return user
+    except Exception as e:
+        log.warning("initData validate: %s", e)
+        return None
+
+
+def _mini_user():
+    init_data = request.headers.get("X-Telegram-Init-Data") or request.args.get("initData") or ""
+    tg_user = _validate_init_data(init_data)
+    if not tg_user:
+        return None, (jsonify({"ok": False, "error": "Unauthorized — បើកពី Telegram Mini App"}), 401)
+    uid = int(tg_user["id"])
+    # ensure record
+    s = uid_s(uid)
+    if s not in users:
+        users[s] = {
+            "id": uid,
+            "username": tg_user.get("username") or "",
+            "tg_name": (tg_user.get("first_name") or "")[:64],
+            "created": datetime.utcnow().isoformat() + "Z",
+            "paused": False,
+            "photos": [],
+            "photos_from_tg": True,
+        }
+        save_users()
+    else:
+        users[s]["username"] = tg_user.get("username") or users[s].get("username", "")
+        users[s]["tg_name"] = (tg_user.get("first_name") or users[s].get("tg_name") or "")[:64]
+    try:
+        sync_tg_profile_photos(uid)
+    except Exception:
+        pass
+    return users[s], None
+
+
+@app.get("/miniapp")
+@app.get("/miniapp/")
+def miniapp_index():
+    path = os.path.join(app.static_folder or "static", "miniapp", "index.html")
+    return send_file(path)
+
+
+@app.get("/api/mini/me")
+def api_mini_me():
+    u, err = _mini_user()
+    if err:
+        return err
+    return jsonify({"ok": True, "profile": _public_profile(u)})
+
+
+@app.get("/api/mini/next")
+def api_mini_next():
+    u, err = _mini_user()
+    if err:
+        return err
+    if not profile_complete(u):
+        return jsonify({"ok": True, "profile": None, "message": "បង្កើត Profile ក្នុង bot ជាមុន"})
+    cand = next_candidate(uid_s(u["id"]))
+    if not cand:
+        return jsonify({"ok": True, "profile": None, "message": "អស់ Profile ហើយ"})
+    other = users.get(cand)
+    return jsonify({"ok": True, "profile": _public_profile(other)})
+
+
+@app.post("/api/mini/like")
+def api_mini_like():
+    u, err = _mini_user()
+    if err:
+        return err
+    body = request.get_json(silent=True) or {}
+    target = body.get("target_id")
+    if not target:
+        return jsonify({"ok": False, "error": "missing target_id"}), 400
+    target_s = uid_s(target)
+    if target_s not in users:
+        return jsonify({"ok": False, "error": "profile not found"}), 404
+    matched = add_like(uid_s(u["id"]), target_s)
+    other = users[target_s]
+    if matched:
+        try:
+            bot.send_message(
+                int(target),
+                "🎉 <b>Match!</b> អ្នក និង <b>%s</b> Like គ្នា!\nTelegram: %s"
+                % (
+                    u.get("name") or u.get("tg_name"),
+                    ("@" + u["username"]) if u.get("username") else "គ្មាន username",
+                ),
+            )
+        except Exception:
+            pass
+        try:
+            bot.send_message(
+                int(u["id"]),
+                "🎉 <b>Match!</b> អ្នក និង <b>%s</b> Like គ្នា!\nTelegram: %s"
+                % (
+                    other.get("name") or other.get("tg_name"),
+                    ("@" + other["username"]) if other.get("username") else "គ្មាន username",
+                ),
+            )
+        except Exception:
+            pass
+    else:
+        try:
+            bot.send_message(
+                int(target),
+                "💚 <b>%s</b> បាន Like អ្នក! បើក Mini App ឬ 🔍 ស្វែងរក ដើម្បី Like វិញ។"
+                % (u.get("name") or u.get("tg_name") or "នរណាម្នាក់"),
+            )
+        except Exception:
+            pass
+    return jsonify({
+        "ok": True,
+        "match": matched,
+        "name": other.get("name"),
+        "username": other.get("username") or "",
+    })
+
+
+@app.post("/api/mini/skip")
+def api_mini_skip():
+    u, err = _mini_user()
+    if err:
+        return err
+    body = request.get_json(silent=True) or {}
+    target = body.get("target_id")
+    # mark as "seen" by adding to likes skip list without match — use _browse only
+    # optional: store skips
+    skips = u.setdefault("_skips", [])
+    ts = uid_s(target) if target else None
+    if ts and ts not in skips:
+        skips.append(ts)
+        if len(skips) > 200:
+            u["_skips"] = skips[-100:]
+        save_users()
+    return jsonify({"ok": True})
+
+
+@app.get("/api/mini/matches")
+def api_mini_matches():
+    u, err = _mini_user()
+    if err:
+        return err
+    ids = matches.get(uid_s(u["id"]), [])
+    out = []
+    for mid in ids:
+        ou = users.get(uid_s(mid))
+        if ou:
+            out.append(_public_profile(ou))
+    return jsonify({"ok": True, "matches": out})
+
+
+@app.get("/api/mini/photo/<path:file_id>")
+def api_mini_photo(file_id):
+    """Proxy Telegram file for Mini App <img>."""
+    try:
+        fi = bot.get_file(file_id)
+        data = bot.download_file(fi.file_path)
+        # crude content type
+        ct = "image/jpeg"
+        if fi.file_path and fi.file_path.endswith(".png"):
+            ct = "image/png"
+        return Response(data, mimetype=ct)
+    except Exception as e:
+        log.warning("photo proxy: %s", e)
+        return Response(status=404)
+
+
+def miniapp_url() -> str:
+    base = PUBLIC_BASE_URL
+    if not base:
+        return ""
+    return base.rstrip("/") + "/miniapp"
+
+
+def mini_webapp_kb():
+    """Keyboard with Mini App button when PUBLIC_BASE_URL is set."""
+    url = miniapp_url()
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    if url:
+        try:
+            kb.row(types.KeyboardButton(text="📱 បើក Mini App", web_app=types.WebAppInfo(url=url)))
+        except Exception:
+            pass
+    return kb
+
+
+
+
 
 
 @app.get("/health")
