@@ -3,22 +3,30 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-  <title>ភ្ជាប់ចិត្ត · PhchapChet</title>
+  <title>ភ្ជាប់ចិត្ត · បណ្តាញសង្គម</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div id="app">
     <header class="top">
-      <div class="brand">💕 ភ្ជាប់ចិត្ត</div>
+      <div class="brand">💕 ភ្ជាប់ចិត្ត <span>Social</span></div>
       <div class="tabs">
-        <button type="button" class="tab on" data-tab="discover">ស្វែងរក</button>
-        <button type="button" class="tab" data-tab="matches">Matches</button>
-        <button type="button" class="tab" data-tab="me">ខ្ញុំ</button>
+        <button type="button" class="tab on" data-tab="feed">🏠 Feed</button>
+        <button type="button" class="tab" data-tab="discover">💚 Match</button>
+        <button type="button" class="tab" data-tab="people">👥 មនុស្ស</button>
+        <button type="button" class="tab" data-tab="me">👤 ខ្ញុំ</button>
       </div>
     </header>
-
-    <section id="view-discover" class="view">
+    <section id="view-feed" class="view">
+      <div class="composer">
+        <textarea id="post-text" rows="2" maxlength="500" placeholder="មានអ្វីចែករំលែក?…"></textarea>
+        <button type="button" class="btn-post" id="btn-post">បង្ហោះ</button>
+      </div>
+      <div id="feed-list" class="feed"></div>
+      <p id="feed-empty" class="hint">មិនទាន់មានប្រកាស — ជាអ្នកដំបូង!</p>
+    </section>
+    <section id="view-discover" class="view hidden">
       <div id="card" class="card empty">
         <div class="photo" id="photo"></div>
         <div class="meta">
@@ -28,22 +36,22 @@
         </div>
       </div>
       <div class="actions" id="actions" hidden>
-        <button type="button" class="round skip" id="btn-skip" title="បន្ទាប់">⏭</button>
-        <button type="button" class="round like" id="btn-like" title="Like">💚</button>
+        <button type="button" class="round skip" id="btn-skip">⏭</button>
+        <button type="button" class="round like" id="btn-like">💚</button>
       </div>
       <p id="discover-msg" class="hint"></p>
     </section>
-
-    <section id="view-matches" class="view hidden">
+    <section id="view-people" class="view hidden">
+      <div id="people-list" class="list"></div>
+      <p id="people-empty" class="hint">មិនមានអ្នកប្រើទេ</p>
+    </section>
+    <section id="view-me" class="view hidden">
+      <div id="me-card" class="card me"></div>
+      <p class="hint">រូបពី Telegram Profile · កែ Profile ក្នុង bot chat</p>
+      <h3 class="sec-title">Matches</h3>
       <div id="match-list" class="list"></div>
       <p id="match-empty" class="hint">មិនទាន់មាន Match</p>
     </section>
-
-    <section id="view-me" class="view hidden">
-      <div id="me-card" class="card me"></div>
-      <p class="hint">រូបមកពី Telegram Profile · កែ Profile ក្នុង bot chat</p>
-    </section>
-
     <div id="toast" class="toast hidden"></div>
   </div>
   <script src="app.js"></script>

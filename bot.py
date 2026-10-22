@@ -46,6 +46,8 @@ MATCHES_FILE = os.path.join(DATA_DIR, "matches.json")
 REPORTS_FILE = os.path.join(DATA_DIR, "reports.json")
 SETTINGS_FILE = os.path.join(DATA_DIR, "settings.json")
 EMOJI_FILE = os.path.join(DATA_DIR, "emoji.json")
+POSTS_FILE = os.path.join(DATA_DIR, "posts.json")
+FOLLOWS_FILE = os.path.join(DATA_DIR, "follows.json")
 
 # ═══════════════════════════════════════════════════════════
 #  STORAGE
@@ -120,6 +122,10 @@ settings: dict = _load(SETTINGS_FILE, {
 })
 
 emoji_map: dict = _load(EMOJI_FILE, {})
+posts = _load(POSTS_FILE, [])
+if not isinstance(posts, list):
+    posts = []
+follows: dict = _load(FOLLOWS_FILE, {})  # uid -> [following_uid, ...]
 
 waiting: dict = {}  # uid -> step str or dict
 
@@ -260,6 +266,14 @@ def save_likes():
 
 def save_matches():
     _save(MATCHES_FILE, matches)
+
+
+def save_posts():
+    _save(POSTS_FILE, posts)
+
+
+def save_follows():
+    _save(FOLLOWS_FILE, follows)
 
 
 def is_admin(uid) -> bool:
@@ -1253,6 +1267,187 @@ def mini_webapp_kb():
 
 
 
+
+
+
+
+
+@app.get("/api/mini/feed")
+def api_mini_feed():
+    u, err = _mini_user()
+    if err:
+        return err
+    me = uid_s(u["id"])
+    following = set(follows.get(me, []))
+    # feed: posts from self + following + recent public, newest first
+    items = []
+    for post in reversed(list(posts)[-200:]):
+        author_id = uid_s(post.get("uid"))
+        author = users.get(author_id) or {}
+        if not author:
+            continue
+        # show all non-paused for social network (open feed)
+        if author.get("paused"):
+            continue
+        items.append({
+            "id": post.get("id"),
+            "text": post.get("text") or "",
+            "created": post.get("created"),
+            "likes": len(post.get("likes") or []),
+            "liked": me in (post.get("likes") or []),
+            "comments": len(post.get("comments") or []),
+            "author": {
+                "id": author.get("id"),
+                "name": author.get("name") or author.get("tg_name") or "—",
+                "username": author.get("username") or "",
+                "photo": (author.get("photos") or [None])[0],
+            },
+        })
+        if len(items) >= 50:
+            break
+    return jsonify({"ok": True, "posts": items})
+
+
+@app.post("/api/mini/post")
+def api_mini_post():
+    u, err = _mini_user()
+    if err:
+        return err
+    if not profile_complete(u):
+        return jsonify({"ok": False, "error": "បង្កើត Profile ក្នុង bot ជាមុន"}), 400
+    body = request.get_json(silent=True) or {}
+    text = str(body.get("text") or "").strip()[:500]
+    if not text:
+        return jsonify({"ok": False, "error": "សរសេរអ្វីមួយ"}), 400
+    import uuid
+    post = {
+        "id": uuid.uuid4().hex[:12],
+        "uid": uid_s(u["id"]),
+        "text": text,
+        "created": datetime.utcnow().isoformat() + "Z",
+        "likes": [],
+        "comments": [],
+    }
+    posts.append(post)
+    save_posts()
+    return jsonify({"ok": True, "post": {"id": post["id"], "text": text}})
+
+
+@app.post("/api/mini/post_like")
+def api_mini_post_like():
+    u, err = _mini_user()
+    if err:
+        return err
+    body = request.get_json(silent=True) or {}
+    pid = str(body.get("post_id") or "")
+    me = uid_s(u["id"])
+    for post in posts:
+        if post.get("id") == pid:
+            likes_l = post.setdefault("likes", [])
+            if me in likes_l:
+                likes_l.remove(me)
+                liked = False
+            else:
+                likes_l.append(me)
+                liked = True
+            save_posts()
+            return jsonify({"ok": True, "liked": liked, "likes": len(likes_l)})
+    return jsonify({"ok": False, "error": "post not found"}), 404
+
+
+@app.post("/api/mini/comment")
+def api_mini_comment():
+    u, err = _mini_user()
+    if err:
+        return err
+    body = request.get_json(silent=True) or {}
+    pid = str(body.get("post_id") or "")
+    text = str(body.get("text") or "").strip()[:200]
+    if not text:
+        return jsonify({"ok": False, "error": "empty"}), 400
+    me = uid_s(u["id"])
+    for post in posts:
+        if post.get("id") == pid:
+            c = {
+                "uid": me,
+                "name": u.get("name") or u.get("tg_name") or "—",
+                "text": text,
+                "created": datetime.utcnow().isoformat() + "Z",
+            }
+            post.setdefault("comments", []).append(c)
+            save_posts()
+            return jsonify({"ok": True, "comments": len(post["comments"])})
+    return jsonify({"ok": False, "error": "post not found"}), 404
+
+
+@app.get("/api/mini/post/<pid>")
+def api_mini_post_detail(pid):
+    u, err = _mini_user()
+    if err:
+        return err
+    me = uid_s(u["id"])
+    for post in posts:
+        if post.get("id") == pid:
+            author = users.get(uid_s(post.get("uid"))) or {}
+            return jsonify({
+                "ok": True,
+                "post": {
+                    "id": post["id"],
+                    "text": post.get("text"),
+                    "created": post.get("created"),
+                    "likes": len(post.get("likes") or []),
+                    "liked": me in (post.get("likes") or []),
+                    "comments": post.get("comments") or [],
+                    "author": _public_profile(author) if author else {},
+                },
+            })
+    return jsonify({"ok": False, "error": "not found"}), 404
+
+
+@app.post("/api/mini/follow")
+def api_mini_follow():
+    u, err = _mini_user()
+    if err:
+        return err
+    body = request.get_json(silent=True) or {}
+    target = uid_s(body.get("target_id"))
+    me = uid_s(u["id"])
+    if not target or target == me or target not in users:
+        return jsonify({"ok": False, "error": "invalid target"}), 400
+    lst = follows.setdefault(me, [])
+    if target in lst:
+        lst.remove(target)
+        following = False
+    else:
+        lst.append(target)
+        following = True
+    save_follows()
+    return jsonify({"ok": True, "following": following})
+
+
+@app.get("/api/mini/people")
+def api_mini_people():
+    """Browse people for social network."""
+    u, err = _mini_user()
+    if err:
+        return err
+    me = uid_s(u["id"])
+    following = set(follows.get(me, []))
+    out = []
+    for oid, ou in users.items():
+        if oid == me:
+            continue
+        if not profile_complete(ou):
+            continue
+        if ou.get("paused"):
+            continue
+        out.append({
+            **_public_profile(ou),
+            "following": oid in following,
+        })
+        if len(out) >= 40:
+            break
+    return jsonify({"ok": True, "people": out})
 
 
 
