@@ -16,7 +16,8 @@ from datetime import datetime
 
 import telebot
 from telebot import types
-from flask import Flask, request, jsonify, send_file, Response
+from flask import Flask, request, jsonify, send_file, Response, send_from_directory
+from werkzeug.utils import secure_filename
 import hmac
 import hashlib
 from urllib.parse import parse_qsl
@@ -47,6 +48,11 @@ REPORTS_FILE = os.path.join(DATA_DIR, "reports.json")
 SETTINGS_FILE = os.path.join(DATA_DIR, "settings.json")
 EMOJI_FILE = os.path.join(DATA_DIR, "emoji.json")
 POSTS_FILE = os.path.join(DATA_DIR, "posts.json")
+MEDIA_DIR = os.path.join(DATA_DIR, "media")
+try:
+    os.makedirs(MEDIA_DIR, exist_ok=True)
+except Exception:
+    pass
 FOLLOWS_FILE = os.path.join(DATA_DIR, "follows.json")
 
 # ═══════════════════════════════════════════════════════════
@@ -1427,6 +1433,8 @@ def api_mini_feed():
             "likes": len(post.get("likes") or []),
             "liked": me in (post.get("likes") or []),
             "comments": len(post.get("comments") or []),
+            "media_url": post.get("media_url"),
+            "media_type": post.get("media_type"),
             "author": {
                 "id": author.get("id"),
                 "name": author.get("name") or author.get("tg_name") or "—",
@@ -1445,12 +1453,37 @@ def api_mini_post():
     if err:
         return err
     if not profile_complete(u):
-        return jsonify({"ok": False, "error": "បង្កើត Profile ក្នុង bot ជាមុន"}), 400
-    body = request.get_json(silent=True) or {}
-    text = str(body.get("text") or "").strip()[:500]
-    if not text:
-        return jsonify({"ok": False, "error": "សរសេរអ្វីមួយ"}), 400
+        return jsonify({"ok": False, "error": "ដាក់រូប Telegram Profile សិន"}), 400
     import uuid
+    text = ""
+    media_url = None
+    media_type = None
+    # JSON body
+    if request.is_json:
+        body = request.get_json(silent=True) or {}
+        text = str(body.get("text") or "").strip()[:500]
+    else:
+        text = str(request.form.get("text") or "").strip()[:500]
+        f = request.files.get("media") or request.files.get("video") or request.files.get("file")
+        if f and f.filename:
+            fname = secure_filename(f.filename)
+            ext = (os.path.splitext(fname)[1] or "").lower()
+            allowed = {".mp4", ".webm", ".mov", ".m4v", ".jpg", ".jpeg", ".png", ".gif", ".webp"}
+            if ext not in allowed:
+                return jsonify({"ok": False, "error": "ទម្រង់ឯកសារមិនគាំទ្រ"}), 400
+            pid = uuid.uuid4().hex[:12]
+            store = "%s%s" % (pid, ext)
+            path = os.path.join(MEDIA_DIR, store)
+            try:
+                os.makedirs(MEDIA_DIR, exist_ok=True)
+                f.save(path)
+            except Exception as e:
+                log.warning("media save: %s", e)
+                return jsonify({"ok": False, "error": "upload failed"}), 500
+            media_url = "/api/mini/media/" + store
+            media_type = "video" if ext in {".mp4", ".webm", ".mov", ".m4v"} else "image"
+    if not text and not media_url:
+        return jsonify({"ok": False, "error": "សរសេរ ឬ ជ្រើសវីដេអូ/រូប"}), 400
     post = {
         "id": uuid.uuid4().hex[:12],
         "uid": uid_s(u["id"]),
@@ -1458,10 +1491,21 @@ def api_mini_post():
         "created": datetime.utcnow().isoformat() + "Z",
         "likes": [],
         "comments": [],
+        "media_url": media_url,
+        "media_type": media_type,
     }
     posts.append(post)
     save_posts()
-    return jsonify({"ok": True, "post": {"id": post["id"], "text": text}})
+    return jsonify({"ok": True, "post": {"id": post["id"], "text": text, "media_url": media_url, "media_type": media_type}})
+
+
+@app.get("/api/mini/media/<path:fname>")
+def api_mini_media(fname):
+    fname = secure_filename(fname)
+    path = os.path.join(MEDIA_DIR, fname)
+    if not os.path.isfile(path):
+        return Response(status=404)
+    return send_from_directory(MEDIA_DIR, fname)
 
 
 @app.post("/api/mini/post_like")

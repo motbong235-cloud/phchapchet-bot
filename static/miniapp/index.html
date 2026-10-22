@@ -5,28 +5,31 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <title>ភ្ជាប់ចិត្ត</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <link rel="stylesheet" href="/static/miniapp/style.css?v=3" />
+  <link rel="stylesheet" href="/static/miniapp/style.css?v=4" />
 </head>
 <body>
   <div id="app">
-    <!-- HOME -->
     <section id="view-home" class="view">
       <header class="page-head">
         <div class="logo-row">
           <div class="logo-mark">ភ</div>
           <div>
             <div class="logo-name">ភ្ជាប់ចិត្ត</div>
-            <div class="logo-sub">ស្វែងរក · ភ្ជាប់គ្នា · មិត្តភក្តិ</div>
+            <div class="logo-sub">ស្វែងរក · ភ្ជាប់គ្នា</div>
           </div>
         </div>
-        <button type="button" class="icon-btn" id="btn-to-me" aria-label="profile">👤</button>
+        <button type="button" class="icon-btn" id="btn-to-me" aria-label="profile">
+          <svg class="ico" viewBox="0 0 24 24"><path d="M12 12a5 5 0 1 0-5-5 5 5 0 0 0 5 5Zm0 2c-4.4 0-8 2.2-8 5v1h16v-1c0-2.8-3.6-5-8-5Z"/></svg>
+        </button>
       </header>
 
       <div class="composer-card">
         <div class="composer-row">
           <div class="av sm" id="home-av"></div>
-          <button type="button" class="composer-fake" id="open-composer">បង្ហោះអារម្មណ៍ រូបភាព ឬអត្ថបទ…</button>
-          <button type="button" class="icon-btn soft" id="btn-photo-hint">🖼</button>
+          <button type="button" class="composer-fake" id="open-composer">បង្ហោះអារម្មណ៍ រូប ឬវីដេអូ…</button>
+          <button type="button" class="icon-btn soft" id="btn-pick-media" aria-label="media">
+            <svg class="ico" viewBox="0 0 24 24"><path d="M4 5h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Zm0 2v7.5l3.5-3.5 2.5 2.5 4.5-4.5L20 14V7H4Zm3.5 1.5A1.5 1.5 0 1 1 5 10a1.5 1.5 0 0 1 2.5-1.5Z"/></svg>
+          </button>
         </div>
       </div>
 
@@ -39,36 +42,35 @@
       </div>
       <div id="story-row" class="story-row"></div>
 
-      <div class="section-head">
-        <div class="section-title">ព័ត៌មាន</div>
-      </div>
+      <div class="section-head"><div class="section-title">ព័ត៌មាន</div></div>
       <div id="feed-list" class="feed"></div>
       <p id="feed-empty" class="empty-block">មិនទាន់មានប្រកាស — ជាអ្នកដំបូង!</p>
     </section>
 
-    <!-- FRIENDS -->
     <section id="view-friends" class="view hidden">
       <header class="page-head">
         <div>
           <div class="eyebrow">ភ្ជាប់គ្នាជាមួយ</div>
           <div class="page-title">ស្វែងរកមិត្ត</div>
         </div>
-        <button type="button" class="icon-btn soft" data-go="match">💚</button>
+        <button type="button" class="icon-btn soft" data-go="match" aria-label="match">
+          <svg class="ico pink" viewBox="0 0 24 24"><path d="M12 21s-7-4.4-9.5-8.2C.7 10 1.6 6.5 4.5 5.2 6.6 4.2 9 4.9 12 7.2c3-2.3 5.4-3 7.5-2 2.9 1.3 3.8 4.8 2 7.6C19 16.6 12 21 12 21Z"/></svg>
+        </button>
       </header>
       <div class="search-bar">
-        <input id="people-q" type="search" placeholder="ស្វែងរកឈ្មោះ បរិយាកាសអ្នកប្រើ" />
-        <button type="button" class="go-btn" id="btn-search">→</button>
+        <input id="people-q" type="search" placeholder="ស្វែងរកឈ្មោះ / username" />
+        <button type="button" class="go-btn" id="btn-search" aria-label="search">
+          <svg class="ico white" viewBox="0 0 24 24"><path d="M10 4a6 6 0 1 1 0 12 6 6 0 0 1 0-12Zm8.3 12.9 3.4 3.4-1.4 1.4-3.4-3.4A8 8 0 1 1 10 2a8 8 0 0 1 8.3 14.9Z"/></svg>
+        </button>
       </div>
       <div class="chips">
         <button type="button" class="chip on" data-filter="all">ទាំងអស់</button>
-        <button type="button" class="chip" data-filter="online">កំពុងអនឡាញ</button>
         <button type="button" class="chip" data-filter="following">កំពុងតាម</button>
       </div>
       <div id="people-list" class="people"></div>
       <p id="people-empty" class="empty-block hidden">មិនមានអ្នកប្រើ</p>
     </section>
 
-    <!-- MATCH (swipe) -->
     <section id="view-match" class="view hidden">
       <header class="page-head">
         <div>
@@ -76,7 +78,7 @@
           <div class="page-title">Match</div>
         </div>
       </header>
-      <div id="match-card" class="match-card empty">
+      <div id="match-card" class="match-card">
         <div class="match-photo" id="m-photo"></div>
         <div class="match-meta">
           <h2 id="m-name">—</h2>
@@ -85,78 +87,98 @@
         </div>
       </div>
       <div class="match-actions" id="m-actions" hidden>
-        <button type="button" class="fab skip" id="btn-skip">⏭</button>
-        <button type="button" class="fab like" id="btn-like">💚</button>
+        <button type="button" class="fab skip" id="btn-skip" aria-label="next">
+          <svg class="ico" viewBox="0 0 24 24"><path d="M8 5v14l11-7L8 5Z"/></svg>
+        </button>
+        <button type="button" class="fab like" id="btn-like" aria-label="like">
+          <svg class="ico white" viewBox="0 0 24 24"><path d="M12 21s-7-4.4-9.5-8.2C.7 10 1.6 6.5 4.5 5.2 6.6 4.2 9 4.9 12 7.2c3-2.3 5.4-3 7.5-2 2.9 1.3 3.8 4.8 2 7.6C19 16.6 12 21 12 21Z"/></svg>
+        </button>
       </div>
       <p id="match-msg" class="empty-block"></p>
     </section>
 
-    <!-- CHAT -->
     <section id="view-chat" class="view hidden">
       <header class="page-head">
         <div>
-          <div class="eyebrow">ទំនាក់ទំនងផ្ទាល់</div>
+          <div class="eyebrow">ទំនាក់ទំនង</div>
           <div class="page-title">ការសន្ទនា</div>
         </div>
       </header>
       <div class="chat-empty">
-        <div class="chat-ico">💬</div>
-        <h3>ការសន្ទនាចាប់ផ្ដើមពីការស្វែងរក</h3>
-        <p>ស្វែងរកមិត្ត រួចចុច 💬 ដើម្បីជជែកតាម Telegram</p>
+        <div class="chat-ico">
+          <svg class="ico lg muted" viewBox="0 0 24 24"><path d="M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H8l-4 3v-3H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/></svg>
+        </div>
+        <h3>ការសន្ទនាចាប់ផ្ដើមពី Match</h3>
+        <p>ស្វែងរកមិត្ត រួចចុចសារ ដើម្បីជជែកតាម Telegram</p>
         <button type="button" class="primary-btn" data-go="friends">ស្វែងរកមិត្ត</button>
       </div>
-      <div id="match-chat-list" class="people" style="margin-top:12px"></div>
+      <div id="match-chat-list" class="people"></div>
     </section>
 
-    <!-- PROFILE -->
     <section id="view-me" class="view hidden">
       <div class="profile-hero">
-        <button type="button" class="icon-btn soft abs-r" id="btn-settings">⚙</button>
+        <button type="button" class="icon-btn soft abs-r" id="btn-settings" aria-label="settings">
+          <svg class="ico" viewBox="0 0 24 24"><path d="M10 2h4l.6 2.3a7 7 0 0 1 1.7 1L19 4.6l2 3.4-1.8 1.3c.1.5.1 1 .1 1.5s0 1-.1 1.5L21 13l-2 3.4-2.7-1.7a7 7 0 0 1-1.7 1L14 22h-4l-.6-2.3a7 7 0 0 1-1.7-1L5 16.4 3 13l1.8-1.3A7 7 0 0 1 4.7 10c0-.5 0-1 .1-1.5L3 7.4 5 4l2.7 1.7a7 7 0 0 1 1.7-1L10 2Zm2 6a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z"/></svg>
+        </button>
         <div class="av lg" id="me-av"></div>
         <div class="me-name" id="me-name">—</div>
-        <div class="me-handle" id="me-handle">
-          <span id="me-user">@—</span>
-          <span class="dot-on">អនឡាញ</span>
-        </div>
-        <div class="stats" id="me-stats">
+        <div class="me-handle"><span id="me-user">@—</span> <span class="dot-on">អនឡាញ</span></div>
+        <div class="stats">
           <div><b id="st-posts">0</b><span>ផុស</span></div>
           <div><b id="st-likes">0</b><span>ចូលចិត្ត</span></div>
-          <div><b id="st-followers">0</b><span>អ្នកតាមដាន</span></div>
-          <div><b id="st-following">0</b><span>កំពុងតាមដាន</span></div>
+          <div><b id="st-followers">0</b><span>អ្នកតាម</span></div>
+          <div><b id="st-following">0</b><span>កំពុងតាម</span></div>
         </div>
         <p class="me-bio" id="me-bio"></p>
-        <button type="button" class="edit-btn" id="btn-edit">✏️ កែប្រវត្តិរូប</button>
-        <div class="profile-tabs">
-          <button type="button" class="ptab on">ផុស</button>
-          <button type="button" class="ptab">វីដេអូ</button>
-          <button type="button" class="ptab">ចូលចិត្ត</button>
-        </div>
+        <button type="button" class="edit-btn" id="btn-edit">
+          <svg class="ico sm" viewBox="0 0 24 24"><path d="M4 20h4l10-10-4-4L4 16v4Zm14.7-13.3 1.6-1.6a1 1 0 0 0 0-1.4l-2-2a1 1 0 0 0-1.4 0l-1.6 1.6 4 4Z"/></svg>
+          កែប្រវត្តិរូប
+        </button>
       </div>
       <div id="me-posts" class="feed pad"></div>
       <p id="me-posts-empty" class="empty-block">មិនទាន់មានការបង្ហោះទេ</p>
     </section>
 
-    <!-- Composer sheet -->
     <div id="sheet" class="sheet hidden">
       <div class="sheet-bg" id="sheet-bg"></div>
       <div class="sheet-card">
         <div class="sheet-title">បង្ហោះថ្មី</div>
-        <textarea id="post-text" rows="4" maxlength="500" placeholder="មានអ្វីចែករំលែក?"></textarea>
+        <textarea id="post-text" rows="3" maxlength="500" placeholder="មានអ្វីចែករំលែក?"></textarea>
+        <div class="media-row">
+          <label class="media-pick" for="media-input">
+            <svg class="ico" viewBox="0 0 24 24"><path d="M17 10.5V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3.5l4 4v-11l-4 4Z"/></svg>
+            រូប / វីដេអូ
+          </label>
+          <input type="file" id="media-input" accept="image/*,video/mp4,video/webm,video/quicktime" hidden />
+          <span id="media-name" class="media-name"></span>
+        </div>
+        <div id="media-preview" class="media-preview hidden"></div>
         <button type="button" class="primary-btn" id="btn-post">បង្ហោះ</button>
         <button type="button" class="ghost-btn" id="sheet-close">បោះបង់</button>
       </div>
     </div>
 
-    <!-- Bottom nav -->
     <nav class="bottom">
-      <button type="button" class="nav on" data-tab="home"><span>▦</span>ទំព័រ</button>
-      <button type="button" class="nav" data-tab="friends"><span>👥</span>មិត្ត</button>
-      <button type="button" class="nav" data-tab="chat"><span>💬</span>សារ</button>
-      <button type="button" class="nav" data-tab="me"><span>👤</span>ប្រវត្តិ</button>
+      <button type="button" class="nav on" data-tab="home">
+        <svg class="ico" viewBox="0 0 24 24"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1v-9.5Z"/></svg>
+        ទំព័រ
+      </button>
+      <button type="button" class="nav" data-tab="friends">
+        <svg class="ico" viewBox="0 0 24 24"><path d="M16 11a4 4 0 1 0-4-4 4 4 0 0 0 4 4ZM8 12a3.5 3.5 0 1 0-3.5-3.5A3.5 3.5 0 0 0 8 12Zm8 2c-3 0-6 1.5-6 3.5V19h12v-1.5C22 15.5 19 14 16 14ZM8 14c-2.8 0-5 1.2-5 3v2h5v-1.5c0-1.3.5-2.4 1.4-3.2A9 9 0 0 0 8 14Z"/></svg>
+        មិត្ត
+      </button>
+      <button type="button" class="nav" data-tab="chat">
+        <svg class="ico" viewBox="0 0 24 24"><path d="M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H8l-4 3v-3H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/></svg>
+        សារ
+      </button>
+      <button type="button" class="nav" data-tab="me">
+        <svg class="ico" viewBox="0 0 24 24"><path d="M12 12a5 5 0 1 0-5-5 5 5 0 0 0 5 5Zm0 2c-4.4 0-8 2.2-8 5v1h16v-1c0-2.8-3.6-5-8-5Z"/></svg>
+        ប្រវត្តិ
+      </button>
     </nav>
 
     <div id="toast" class="toast hidden"></div>
   </div>
-  <script src="/static/miniapp/app.js?v=3"></script>
+  <script src="/static/miniapp/app.js?v=4"></script>
 </body>
 </html>
