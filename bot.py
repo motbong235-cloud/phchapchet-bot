@@ -155,11 +155,21 @@ EMOJI_KEYS = [
 ]
 
 
+def emo_html(key, fallback=""):
+    """Premium custom emoji for message HTML (works on normal bots)."""
+    eid = emoji_map.get(key)
+    if eid:
+        ch = (fallback or "⭐").strip()[:4] or "⭐"
+        return '<tg-emoji emoji-id="%s">%s</tg-emoji>' % (eid, ch)
+    return fallback
+
+
 def _kb_btn(text, emoji_key=None):
+    # ReplyKeyboard icon_custom_emoji_id needs Fragment username; still try.
     if emoji_key and emoji_map.get(emoji_key):
         try:
             return types.KeyboardButton(text, icon_custom_emoji_id=str(emoji_map[emoji_key]))
-        except TypeError:
+        except Exception:
             pass
     return types.KeyboardButton(text)
 
@@ -265,10 +275,8 @@ def main_kb(uid=None):
     if u and profile_complete(u):
         kb.row(_kb_btn("🔍 ស្វែងរក", "search"), _kb_btn("💬 Matches", "matches"))
         kb.row(_kb_btn("👤 Profile ខ្ញុំ", "profile"), _kb_btn("⚙️ កែ Profile", "edit"))
-        kb.row(_kb_btn("⏸ ផ្អាក / បន្ត", "pause"), _kb_btn("📢 ជួយ", "help"))
     else:
         kb.row(_kb_btn("✏️ ចាប់ផ្តើម Profile", "edit"))
-        kb.row(_kb_btn("📢 ជួយ", "help"))
     if uid and is_admin(uid):
         kb.row(_kb_btn("🛠 Admin", "admin"))
     return kb
@@ -532,32 +540,49 @@ def do_like(message):
         return
     target = step.get("target")
     if not target or target not in users:
-        bot.send_message(uid, "Profile នេះមិនមានទៀតទេ។", reply_markup=main_kb(uid))
         waiting.pop(uid, None)
+        bot.send_message(uid, "Profile នេះមិនមានទៀតទេ។", reply_markup=main_kb(uid))
         return
+
+    me = users[uid_s(uid)]
+    other = users[target]
     matched = add_like(uid_s(uid), target)
+    heart = emo_html("like", "💚")
+    match_ico = emo_html("matches", "🎉")
+
     if matched:
-        other = users[target]
-        me = users[uid_s(uid)]
+        other_user = ("@" + other["username"]) if other.get("username") else "គេមិនមាន username"
+        me_user = ("@" + me["username"]) if me.get("username") else "គេមិនមាន username"
+        msg_me = (
+            "%s <b>Match!</b>\nអ្នក និង <b>%s</b> Like គ្នា!\n\nTelegram: <b>%s</b>"
+            % (match_ico, other.get("name"), other_user)
+        )
+        bot.send_message(uid, msg_me, reply_markup=main_kb(uid))
+        try:
+            msg_ot = (
+                "%s <b>Match!</b>\nអ្នក និង <b>%s</b> Like គ្នា!\n\nTelegram: <b>%s</b>"
+                % (match_ico, me.get("name"), me_user)
+            )
+            bot.send_message(int(target), msg_ot, reply_markup=main_kb(int(target)))
+        except Exception as e:
+            log.warning("notify match: %s", e)
+        waiting.pop(uid, None)
+    else:
         bot.send_message(
             uid,
-            f"🎉 <b>Match!</b> អ្នក និង <b>{other.get('name')}</b> Like គ្នា!\n"
-            + (f"Telegram: @{other['username']}" if other.get("username") else "គេមិនមាន username — រង់ចាំគេទាក់ទង"),
-            reply_markup=main_kb(uid),
+            "%s បាន Like <b>%s</b>!\nបើគេ Like វិញ → Match + បាន username"
+            % (heart, other.get("name")),
+            reply_markup=browse_kb(),
         )
         try:
             bot.send_message(
                 int(target),
-                f"🎉 <b>Match!</b> អ្នក និង <b>{me.get('name')}</b> Like គ្នា!\n"
-                + (f"Telegram: @{me['username']}" if me.get("username") else ""),
+                "%s <b>%s</b> បាន Like អ្នក!\nចុច 🔍 ស្វែងរក រួច Like វិញ ដើម្បី Match និងឃើញ username។"
+                % (heart, me.get("name")),
                 reply_markup=main_kb(int(target)),
             )
-        except Exception:
-            pass
-        waiting.pop(uid, None)
-    else:
-        bot.send_message(uid, "💚 បាន Like — បើគេ Like វិញនឹង Match!", reply_markup=browse_kb())
-        # auto next
+        except Exception as e:
+            log.warning("notify like: %s", e)
         cand = next_candidate(uid_s(uid))
         if cand:
             waiting[uid] = {"step": "browse", "target": cand}
@@ -565,7 +590,6 @@ def do_like(message):
         else:
             waiting.pop(uid, None)
             bot.send_message(uid, "អស់ Profile ហើយ។", reply_markup=main_kb(uid))
-
 
 @bot.message_handler(func=lambda m: m.text == "⏭ បន្ទាប់")
 def do_skip(message):
@@ -648,13 +672,24 @@ def admin_emoji_setup(message):
     if not is_admin(message.from_user.id):
         return
     waiting[message.from_user.id] = "emoji_menu"
-    lines = ["😀 <b>Setup Premium Emoji</b>\n", "ជ្រើសប៊ូតុង រួចផ្ញើ custom emoji (Premium):\n"]
+    lines = [
+        "😀 <b>Setup Premium Emoji</b>",
+        "",
+        "ជ្រើសប៊ូតុង → ផ្ញើសារមាន custom emoji (Premium) ឬ paste custom_emoji_id",
+        "",
+        "📌 Emoji បង្ហាញក្នុង <b>សារ</b> (Like / Match).",
+        "⚠️ Icon លើ Reply Keyboard ត្រូវ Bot Fragment username — បើអត់ ប៊ូតុងនៅ unicode.",
+        "",
+    ]
     for key, label in EMOJI_KEYS:
         eid = emoji_map.get(key)
         extra = (" · <code>%s</code>" % eid) if eid else ""
         lines.append("%s <code>%s</code> — %s%s" % ("✅" if eid else "⭕", key, label, extra))
-    bot.send_message(message.from_user.id, "\n".join(lines), reply_markup=emoji_setup_kb())
-
+    prev = " ".join(emo_html(k, "•") for k, _ in EMOJI_KEYS if emoji_map.get(k))
+    if prev:
+        lines.append("")
+        lines.append("Preview: " + prev)
+    bot.send_message(message.from_user.id, chr(10).join(lines), reply_markup=emoji_setup_kb())
 
 @bot.message_handler(func=lambda m: m.text == "🗑 លុប emoji ទាំងអស់")
 def admin_emoji_clear(message):
@@ -736,7 +771,7 @@ def emoji_set_id(message):
     emoji_map[key] = eid
     save_emoji()
     waiting[uid] = "emoji_menu"
-    bot.send_message(uid, "✅ <code>%s</code> = <code>%s</code>" % (key, eid), reply_markup=emoji_setup_kb())
+    bot.send_message(uid, ('✅ <code>%s</code> = <code>%s</code>' + chr(10) + 'Preview: %s') % (key, eid, emo_html(key, '⭐')), reply_markup=emoji_setup_kb())
 
 
 @bot.message_handler(func=lambda m: waiting.get(m.from_user.id) == "await_welcome", content_types=["text"])
