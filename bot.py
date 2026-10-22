@@ -349,6 +349,13 @@ def format_profile(u: dict, hide_id=True) -> str:
 
 
 def send_profile_card(to_uid, profile: dict, with_browse=False):
+    try:
+        pid = profile.get("id")
+        if pid:
+            sync_tg_profile_photos(int(pid), force=False)
+            profile = users.get(uid_s(pid), profile)
+    except Exception as e:
+        log.debug("card sync: %s", e)
     text = format_profile(profile)
     photos = profile.get("photos") or []
     kb = browse_kb() if with_browse else main_kb(to_uid)
@@ -367,6 +374,38 @@ def send_profile_card(to_uid, profile: dict, with_browse=False):
         log.warning("send_profile_card: %s", e)
 
 
+def sync_tg_profile_photos(tg_uid, force=False) -> list:
+    """Fetch photos from Telegram profile only (max 3 file_ids)."""
+    uid = uid_s(tg_uid)
+    u = users.get(uid) or {}
+    try:
+        res = bot.get_user_profile_photos(tg_uid, limit=3)
+        photos = []
+        for ph in (res.photos or []):
+            if not ph:
+                continue
+            best = ph[-1]
+            fid = getattr(best, "file_id", None)
+            if fid:
+                photos.append(fid)
+        if photos:
+            u["photos"] = photos[:3]
+            u["photos_from_tg"] = True
+            u["photos_synced_at"] = datetime.utcnow().isoformat() + "Z"
+            users[uid] = u
+            save_users()
+            return photos[:3]
+        if force or not u.get("photos"):
+            u["photos"] = []
+            u["photos_from_tg"] = True
+            users[uid] = u
+            save_users()
+        return list(u.get("photos") or [])
+    except Exception as e:
+        log.warning("sync_tg_profile_photos %s: %s", tg_uid, e)
+        return list(u.get("photos") or [])
+
+
 def ensure_user(msg) -> dict:
     uid = uid_s(msg.from_user.id)
     if uid not in users:
@@ -377,11 +416,18 @@ def ensure_user(msg) -> dict:
             "created": datetime.utcnow().isoformat() + "Z",
             "paused": False,
             "photos": [],
+            "photos_from_tg": True,
         }
         save_users()
     else:
         users[uid]["username"] = msg.from_user.username or users[uid].get("username", "")
+        users[uid]["tg_name"] = (msg.from_user.first_name or users[uid].get("tg_name") or "")[:64]
+    try:
+        sync_tg_profile_photos(msg.from_user.id)
+    except Exception as e:
+        log.debug("ensure sync photos: %s", e)
     return users[uid]
+
 
 
 def next_candidate(viewer_uid: str):
@@ -477,11 +523,21 @@ def start_profile(message):
 
 @bot.message_handler(func=lambda m: m.text == "👤 Profile ខ្ញុំ")
 def my_profile(message):
+    uid = message.from_user.id
     u = ensure_user(message)
+    sync_tg_profile_photos(uid, force=True)
+    u = users.get(uid_s(uid), u)
     if not profile_complete(u):
-        bot.send_message(message.chat.id, "មិនទាន់មាន Profile ទេ — ចុច <b>✏️ ចាប់ផ្តើម Profile</b>", reply_markup=main_kb(message.from_user.id))
+        bot.send_message(uid, "Profile មិនទាន់គ្រប់ — ចុច ⚙️ កែ Profile", reply_markup=main_kb(uid))
         return
-    send_profile_card(message.from_user.id, u, with_browse=False)
+    if not u.get("photos"):
+        bot.send_message(
+            uid,
+            "⚠️ អ្នកមិនមានរូប Profile Telegram។ ដាក់រូបក្នុង Telegram សិន រួចមកម្តងទៀត។",
+            reply_markup=main_kb(uid),
+        )
+        return
+    send_profile_card(uid, u, with_browse=False)
 
 
 @bot.message_handler(func=lambda m: m.text == "⏸ ផ្អាក / បន្ត")
@@ -498,7 +554,7 @@ def help_msg(message):
     bot.send_message(
         message.chat.id,
         f"💕 <b>{BOT_NAME}</b> ({BOT_NAME_EN})\n\n"
-        "1️⃣ បង្កើត Profile (ឈ្មោះ, អាយុ, ភេទ, រូប, bio)\n"
+        "1️⃣ បង្កើត Profile + រូបពី Telegram Profile\n"
         "2️⃣ ចុច 🔍 ស្វែងរក — Like ឬ បន្ទាប់\n"
         "3️⃣ បើ Like ទៅវិញទៅមក → <b>Match</b> · អាចជជែក\n"
         "4️⃣ ⏸ ផ្អាក បើមិនចង់ឲ្យគេឃើញ\n\n"
@@ -847,14 +903,29 @@ def wizard_text(message):
     if step == "bio":
         u["bio"] = text[:300]
         save_users()
-        waiting[uid] = "photos"
+        photos = sync_tg_profile_photos(uid, force=True)
+        waiting.pop(uid, None)
+        if not photos:
+            bot.send_message(
+                uid,
+                "⚠️ <b>អ្នកមិនមានរូប Profile ក្នុង Telegram ទេ</b>\n\n"
+                "1) Telegram → Settings → Profile photo\n"
+                "2) ដាក់រូបរបស់អ្នក\n"
+                "3) ត្រលប់មក bot រួចចុច ⚙️ កែ Profile\n\n"
+                "Bot ប្រើ <b>តែរូប Profile Telegram</b> ប៉ុណ្ណោះ។",
+                reply_markup=main_kb(uid),
+            )
+            return
         bot.send_message(
             uid,
-            "📸 ផ្ញើ <b>រូបថត 1–3 សន្លឹក</b> (ផ្ញើជា Photo)\n"
-            "ពេលគ្រប់ហើយ វាយ <b>រួចហើយ</b>",
-            reply_markup=cancel_kb(),
+            "🎉 <b>Profile រួចរាល់!</b>\n"
+            "📸 ប្រើរូបពី <b>Telegram Profile</b>\n"
+            "ចុច 🔍 ស្វែងរក ដើម្បីចាប់ផ្តើម។",
+            reply_markup=main_kb(uid),
         )
+        send_profile_card(uid, users[uid_s(uid)], with_browse=False)
         return
+
 
 
 @bot.message_handler(func=lambda m: waiting.get(m.from_user.id) == "gender")
@@ -896,30 +967,35 @@ def on_photo(message):
     uid = message.from_user.id
     if waiting.get(uid) == "await_broadcast" and is_admin(uid):
         return broadcast_payload(message)
-    if waiting.get(uid) != "photos":
+    # Only Telegram profile photos allowed
+    photos = sync_tg_profile_photos(uid, force=True)
+    if waiting.get(uid) == "photos":
+        waiting.pop(uid, None)
+    if not photos:
+        bot.send_message(
+            uid,
+            "⚠️ មិនមានរូប Profile Telegram។ ដាក់រូបក្នុង Telegram Settings សិន។",
+            reply_markup=main_kb(uid),
+        )
         return
-    u = ensure_user(message)
-    file_id = message.photo[-1].file_id
-    photos = u.setdefault("photos", [])
-    if len(photos) >= 3:
-        bot.send_message(uid, "បាន 3 រូបហើយ — វាយ <b>រួចហើយ</b>")
-        return
-    photos.append(file_id)
-    save_users()
-    bot.send_message(uid, f"✅ រូប {len(photos)}/3 — ផ្ញើបន្ថែម ឬវាយ <b>រួចហើយ</b>", reply_markup=cancel_kb())
+    bot.send_message(
+        uid,
+        "✅ ប្រើរូប <b>Telegram Profile</b> (មិនទទួលរូបផ្ញើផ្ទាល់)",
+        reply_markup=main_kb(uid),
+    )
+    send_profile_card(uid, users[uid_s(uid)], with_browse=False)
 
 
-@bot.message_handler(func=lambda m: waiting.get(m.from_user.id) == "photos" and (m.text or "").strip() in ("រួចហើយ", "done", "Done"))
+@bot.message_handler(func=lambda m: waiting.get(m.from_user.id) == "photos" and (m.text or "").strip() in ("រួចហើយ", "done", "Done", "Sync", "sync"))
 def photos_done(message):
     uid = message.from_user.id
-    u = ensure_user(message)
-    if not u.get("photos"):
-        bot.send_message(uid, "ត្រូវការយ៉ាងហោច 1 រូប។ ផ្ញើ Photo:")
-        return
+    photos = sync_tg_profile_photos(uid, force=True)
     waiting.pop(uid, None)
-    save_users()
-    bot.send_message(uid, "🎉 <b>Profile រួចរាល់!</b>\nចុច 🔍 ស្វែងរក ដើម្បីចាប់ផ្តើម។", reply_markup=main_kb(uid))
-    send_profile_card(uid, u, with_browse=False)
+    if not photos:
+        bot.send_message(uid, "ត្រូវការ រូប Profile Telegram។", reply_markup=main_kb(uid))
+        return
+    bot.send_message(uid, "🎉 Profile រួចរាល់! 📸 រូបពី Telegram Profile", reply_markup=main_kb(uid))
+    send_profile_card(uid, users[uid_s(uid)], with_browse=False)
 
 
 @bot.message_handler(func=lambda m: True, content_types=["text"])
