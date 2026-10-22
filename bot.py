@@ -1127,7 +1127,19 @@ def api_mini_me():
     u, err = _mini_user()
     if err:
         return err
-    return jsonify({"ok": True, "profile": _public_profile(u)})
+    me = uid_s(u["id"])
+    my_posts = [x for x in posts if uid_s(x.get("uid")) == me]
+    likes_got = sum(1 for x in my_posts for _ in (x.get("likes") or []))
+    following_n = len(follows.get(me, []))
+    followers_n = sum(1 for _uid, lst in follows.items() if me in (lst or []))
+    profile = _public_profile(u)
+    profile["stats"] = {
+        "posts": len(my_posts),
+        "likes": likes_got,
+        "followers": followers_n,
+        "following": following_n,
+    }
+    return jsonify({"ok": True, "profile": profile})
 
 
 @app.get("/api/mini/next")

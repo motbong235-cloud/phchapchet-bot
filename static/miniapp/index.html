@@ -2,58 +2,161 @@
 <html lang="km">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-  <title>ភ្ជាប់ចិត្ត · បណ្តាញសង្គម</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>ភ្ជាប់ចិត្ត</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <link rel="stylesheet" href="/static/miniapp/style.css?v=2" />
+  <link rel="stylesheet" href="/static/miniapp/style.css?v=3" />
 </head>
 <body>
   <div id="app">
-    <header class="top">
-      <div class="brand">💕 ភ្ជាប់ចិត្ត <span>Social</span></div>
-      <div class="tabs">
-        <button type="button" class="tab on" data-tab="feed">🏠 Feed</button>
-        <button type="button" class="tab" data-tab="discover">💚 Match</button>
-        <button type="button" class="tab" data-tab="people">👥 មនុស្ស</button>
-        <button type="button" class="tab" data-tab="me">👤 ខ្ញុំ</button>
-      </div>
-    </header>
-    <section id="view-feed" class="view">
-      <div class="composer">
-        <textarea id="post-text" rows="2" maxlength="500" placeholder="មានអ្វីចែករំលែក?…"></textarea>
-        <button type="button" class="btn-post" id="btn-post">បង្ហោះ</button>
-      </div>
-      <div id="feed-list" class="feed"></div>
-      <p id="feed-empty" class="hint">មិនទាន់មានប្រកាស — ជាអ្នកដំបូង!</p>
-    </section>
-    <section id="view-discover" class="view hidden">
-      <div id="card" class="card empty">
-        <div class="photo" id="photo"></div>
-        <div class="meta">
-          <h2 id="name">—</h2>
-          <p id="info" class="sub"></p>
-          <p id="bio" class="bio"></p>
+    <!-- HOME -->
+    <section id="view-home" class="view">
+      <header class="page-head">
+        <div class="logo-row">
+          <div class="logo-mark">ភ</div>
+          <div>
+            <div class="logo-name">ភ្ជាប់ចិត្ត</div>
+            <div class="logo-sub">ស្វែងរក · ភ្ជាប់គ្នា · មិត្តភក្តិ</div>
+          </div>
+        </div>
+        <button type="button" class="icon-btn" id="btn-to-me" aria-label="profile">👤</button>
+      </header>
+
+      <div class="composer-card">
+        <div class="composer-row">
+          <div class="av sm" id="home-av"></div>
+          <button type="button" class="composer-fake" id="open-composer">បង្ហោះអារម្មណ៍ រូបភាព ឬអត្ថបទ…</button>
+          <button type="button" class="icon-btn soft" id="btn-photo-hint">🖼</button>
         </div>
       </div>
-      <div class="actions" id="actions" hidden>
-        <button type="button" class="round skip" id="btn-skip">⏭</button>
-        <button type="button" class="round like" id="btn-like">💚</button>
+
+      <div class="section-head">
+        <div>
+          <div class="section-title">ថ្មីៗ</div>
+          <div class="section-sub">មនុស្សកំពុងស្វែងរក</div>
+        </div>
+        <button type="button" class="link-btn" data-go="friends">មើលទាំងអស់</button>
       </div>
-      <p id="discover-msg" class="hint"></p>
+      <div id="story-row" class="story-row"></div>
+
+      <div class="section-head">
+        <div class="section-title">ព័ត៌មាន</div>
+      </div>
+      <div id="feed-list" class="feed"></div>
+      <p id="feed-empty" class="empty-block">មិនទាន់មានប្រកាស — ជាអ្នកដំបូង!</p>
     </section>
-    <section id="view-people" class="view hidden">
-      <div id="people-list" class="list"></div>
-      <p id="people-empty" class="hint">មិនមានអ្នកប្រើទេ</p>
+
+    <!-- FRIENDS -->
+    <section id="view-friends" class="view hidden">
+      <header class="page-head">
+        <div>
+          <div class="eyebrow">ភ្ជាប់គ្នាជាមួយ</div>
+          <div class="page-title">ស្វែងរកមិត្ត</div>
+        </div>
+        <button type="button" class="icon-btn soft" data-go="match">💚</button>
+      </header>
+      <div class="search-bar">
+        <input id="people-q" type="search" placeholder="ស្វែងរកឈ្មោះ បរិយាកាសអ្នកប្រើ" />
+        <button type="button" class="go-btn" id="btn-search">→</button>
+      </div>
+      <div class="chips">
+        <button type="button" class="chip on" data-filter="all">ទាំងអស់</button>
+        <button type="button" class="chip" data-filter="online">កំពុងអនឡាញ</button>
+        <button type="button" class="chip" data-filter="following">កំពុងតាម</button>
+      </div>
+      <div id="people-list" class="people"></div>
+      <p id="people-empty" class="empty-block hidden">មិនមានអ្នកប្រើ</p>
     </section>
+
+    <!-- MATCH (swipe) -->
+    <section id="view-match" class="view hidden">
+      <header class="page-head">
+        <div>
+          <div class="eyebrow">Like គ្នា</div>
+          <div class="page-title">Match</div>
+        </div>
+      </header>
+      <div id="match-card" class="match-card empty">
+        <div class="match-photo" id="m-photo"></div>
+        <div class="match-meta">
+          <h2 id="m-name">—</h2>
+          <p id="m-info" class="sub"></p>
+          <p id="m-bio" class="bio"></p>
+        </div>
+      </div>
+      <div class="match-actions" id="m-actions" hidden>
+        <button type="button" class="fab skip" id="btn-skip">⏭</button>
+        <button type="button" class="fab like" id="btn-like">💚</button>
+      </div>
+      <p id="match-msg" class="empty-block"></p>
+    </section>
+
+    <!-- CHAT -->
+    <section id="view-chat" class="view hidden">
+      <header class="page-head">
+        <div>
+          <div class="eyebrow">ទំនាក់ទំនងផ្ទាល់</div>
+          <div class="page-title">ការសន្ទនា</div>
+        </div>
+      </header>
+      <div class="chat-empty">
+        <div class="chat-ico">💬</div>
+        <h3>ការសន្ទនាចាប់ផ្ដើមពីការស្វែងរក</h3>
+        <p>ស្វែងរកមិត្ត រួចចុច 💬 ដើម្បីជជែកតាម Telegram</p>
+        <button type="button" class="primary-btn" data-go="friends">ស្វែងរកមិត្ត</button>
+      </div>
+      <div id="match-chat-list" class="people" style="margin-top:12px"></div>
+    </section>
+
+    <!-- PROFILE -->
     <section id="view-me" class="view hidden">
-      <div id="me-card" class="card me"></div>
-      <p class="hint">រូបពី Telegram Profile · កែ Profile ក្នុង bot chat</p>
-      <h3 class="sec-title">Matches</h3>
-      <div id="match-list" class="list"></div>
-      <p id="match-empty" class="hint">មិនទាន់មាន Match</p>
+      <div class="profile-hero">
+        <button type="button" class="icon-btn soft abs-r" id="btn-settings">⚙</button>
+        <div class="av lg" id="me-av"></div>
+        <div class="me-name" id="me-name">—</div>
+        <div class="me-handle" id="me-handle">
+          <span id="me-user">@—</span>
+          <span class="dot-on">អនឡាញ</span>
+        </div>
+        <div class="stats" id="me-stats">
+          <div><b id="st-posts">0</b><span>ផុស</span></div>
+          <div><b id="st-likes">0</b><span>ចូលចិត្ត</span></div>
+          <div><b id="st-followers">0</b><span>អ្នកតាមដាន</span></div>
+          <div><b id="st-following">0</b><span>កំពុងតាមដាន</span></div>
+        </div>
+        <p class="me-bio" id="me-bio"></p>
+        <button type="button" class="edit-btn" id="btn-edit">✏️ កែប្រវត្តិរូប</button>
+        <div class="profile-tabs">
+          <button type="button" class="ptab on">ផុស</button>
+          <button type="button" class="ptab">វីដេអូ</button>
+          <button type="button" class="ptab">ចូលចិត្ត</button>
+        </div>
+      </div>
+      <div id="me-posts" class="feed pad"></div>
+      <p id="me-posts-empty" class="empty-block">មិនទាន់មានការបង្ហោះទេ</p>
     </section>
+
+    <!-- Composer sheet -->
+    <div id="sheet" class="sheet hidden">
+      <div class="sheet-bg" id="sheet-bg"></div>
+      <div class="sheet-card">
+        <div class="sheet-title">បង្ហោះថ្មី</div>
+        <textarea id="post-text" rows="4" maxlength="500" placeholder="មានអ្វីចែករំលែក?"></textarea>
+        <button type="button" class="primary-btn" id="btn-post">បង្ហោះ</button>
+        <button type="button" class="ghost-btn" id="sheet-close">បោះបង់</button>
+      </div>
+    </div>
+
+    <!-- Bottom nav -->
+    <nav class="bottom">
+      <button type="button" class="nav on" data-tab="home"><span>▦</span>ទំព័រ</button>
+      <button type="button" class="nav" data-tab="friends"><span>👥</span>មិត្ត</button>
+      <button type="button" class="nav" data-tab="chat"><span>💬</span>សារ</button>
+      <button type="button" class="nav" data-tab="me"><span>👤</span>ប្រវត្តិ</button>
+    </nav>
+
     <div id="toast" class="toast hidden"></div>
   </div>
-  <script src="/static/miniapp/app.js?v=2"></script>
+  <script src="/static/miniapp/app.js?v=3"></script>
 </body>
 </html>
