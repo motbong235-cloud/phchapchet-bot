@@ -1181,7 +1181,8 @@ def _public_profile(u: dict) -> dict:
         "looking_label": LOOKING_LABEL.get(u.get("looking", ""), u.get("looking") or ""),
         "city": u.get("city") or "",
         "bio": u.get("bio") or "",
-        "photos": list(u.get("photos") or [])[:3],
+        "photos": ([u["custom_avatar"]] + list(u.get("photos") or []))[:3] if u.get("custom_avatar") else list(u.get("photos") or [])[:3],
+        "banner": u.get("banner") or "",
         "username": u.get("username") or "",
         "complete": profile_complete(u),
     }
@@ -1409,6 +1410,61 @@ def mini_webapp_kb():
 
 
 
+def _save_upload(f, max_mb=50):
+    """Save uploaded file; return (url, type) or raise ValueError."""
+    import uuid
+    if not f or not f.filename:
+        return None, None
+    fname = secure_filename(f.filename)
+    ext = (os.path.splitext(fname)[1] or "").lower()
+    img_ext = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+    vid_ext = {".mp4", ".webm", ".mov", ".m4v"}
+    if ext not in img_ext | vid_ext:
+        raise ValueError("ទម្រង់ឯកសារមិនគាំទ្រ")
+    # size check
+    f.stream.seek(0, 2)
+    size = f.stream.tell()
+    f.stream.seek(0)
+    limit = (10 if ext in img_ext else max_mb) * 1024 * 1024
+    if size > limit:
+        raise ValueError("ឯកសារធំពេក (រូប≤10MB · វីដេអូ≤%sMB)" % max_mb)
+    store = "%s%s" % (uuid.uuid4().hex[:12], ext)
+    path = os.path.join(MEDIA_DIR, store)
+    os.makedirs(MEDIA_DIR, exist_ok=True)
+    f.save(path)
+    url = "/api/mini/media/" + store
+    mtype = "video" if ext in vid_ext else "image"
+    return url, mtype
+
+
+def _post_item(post, me, author=None):
+    author_id = uid_s(post.get("uid"))
+    author = author or users.get(author_id) or {}
+    media = list(post.get("media") or [])
+    if not media and post.get("media_url"):
+        media = [{"url": post.get("media_url"), "type": post.get("media_type") or "image"}]
+    return {
+        "id": post.get("id"),
+        "text": post.get("text") or "",
+        "created": post.get("created"),
+        "likes": len(post.get("likes") or []),
+        "liked": me in (post.get("likes") or []),
+        "comments": len(post.get("comments") or []),
+        "views": int(post.get("views") or 0),
+        "privacy": post.get("privacy") or "public",
+        "media": media,
+        "media_url": media[0]["url"] if media else None,
+        "media_type": media[0]["type"] if media else None,
+        "author": {
+            "id": author.get("id"),
+            "name": author.get("name") or author.get("tg_name") or "—",
+            "username": author.get("username") or "",
+            "photo": (author.get("photos") or [None])[0],
+        },
+        "following": author_id in set(follows.get(me, [])),
+    }
+
+
 @app.get("/api/mini/feed")
 def api_mini_feed():
     u, err = _mini_user()
@@ -1416,32 +1472,19 @@ def api_mini_feed():
         return err
     me = uid_s(u["id"])
     following = set(follows.get(me, []))
-    # feed: posts from self + following + recent public, newest first
+    scope = (request.args.get("scope") or "public").strip().lower()
     items = []
-    for post in reversed(list(posts)[-200:]):
+    for post in reversed(list(posts)[-300:]):
         author_id = uid_s(post.get("uid"))
         author = users.get(author_id) or {}
-        if not author:
+        if not author or author.get("paused"):
             continue
-        # show all non-paused for social network (open feed)
-        if author.get("paused"):
+        privacy = post.get("privacy") or "public"
+        if privacy != "public" and author_id != me and author_id not in following:
             continue
-        items.append({
-            "id": post.get("id"),
-            "text": post.get("text") or "",
-            "created": post.get("created"),
-            "likes": len(post.get("likes") or []),
-            "liked": me in (post.get("likes") or []),
-            "comments": len(post.get("comments") or []),
-            "media_url": post.get("media_url"),
-            "media_type": post.get("media_type"),
-            "author": {
-                "id": author.get("id"),
-                "name": author.get("name") or author.get("tg_name") or "—",
-                "username": author.get("username") or "",
-                "photo": (author.get("photos") or [None])[0],
-            },
-        })
+        if scope == "following" and author_id != me and author_id not in following:
+            continue
+        items.append(_post_item(post, me, author))
         if len(items) >= 50:
             break
     return jsonify({"ok": True, "posts": items})
@@ -1456,34 +1499,49 @@ def api_mini_post():
         return jsonify({"ok": False, "error": "ដាក់រូប Telegram Profile សិន"}), 400
     import uuid
     text = ""
-    media_url = None
-    media_type = None
-    # JSON body
-    if request.is_json:
-        body = request.get_json(silent=True) or {}
-        text = str(body.get("text") or "").strip()[:500]
-    else:
-        text = str(request.form.get("text") or "").strip()[:500]
-        f = request.files.get("media") or request.files.get("video") or request.files.get("file")
-        if f and f.filename:
-            fname = secure_filename(f.filename)
-            ext = (os.path.splitext(fname)[1] or "").lower()
-            allowed = {".mp4", ".webm", ".mov", ".m4v", ".jpg", ".jpeg", ".png", ".gif", ".webp"}
-            if ext not in allowed:
-                return jsonify({"ok": False, "error": "ទម្រង់ឯកសារមិនគាំទ្រ"}), 400
-            pid = uuid.uuid4().hex[:12]
-            store = "%s%s" % (pid, ext)
-            path = os.path.join(MEDIA_DIR, store)
-            try:
-                os.makedirs(MEDIA_DIR, exist_ok=True)
-                f.save(path)
-            except Exception as e:
-                log.warning("media save: %s", e)
-                return jsonify({"ok": False, "error": "upload failed"}), 500
-            media_url = "/api/mini/media/" + store
-            media_type = "video" if ext in {".mp4", ".webm", ".mov", ".m4v"} else "image"
-    if not text and not media_url:
-        return jsonify({"ok": False, "error": "សរសេរ ឬ ជ្រើសវីដេអូ/រូប"}), 400
+    privacy = "public"
+    media_list = []
+    try:
+        if request.is_json:
+            body = request.get_json(silent=True) or {}
+            text = str(body.get("text") or "").strip()[:500]
+            privacy = str(body.get("privacy") or "public").strip().lower()
+        else:
+            text = str(request.form.get("text") or "").strip()[:500]
+            privacy = str(request.form.get("privacy") or "public").strip().lower()
+            files = []
+            if request.files.getlist("media"):
+                files = [f for f in request.files.getlist("media") if f and f.filename]
+            elif request.files.get("media"):
+                files = [request.files.get("media")]
+            # also media0 media1 media2
+            for i in range(3):
+                f = request.files.get("media%s" % i)
+                if f and f.filename:
+                    files.append(f)
+            has_video = False
+            for f in files[:3]:
+                url, mtype = _save_upload(f)
+                if not url:
+                    continue
+                if mtype == "video":
+                    if has_video or media_list:
+                        return jsonify({"ok": False, "error": "វីដេអូបានតែ 1 · ឬ រូប 1–3"}), 400
+                    has_video = True
+                    media_list = [{"url": url, "type": "video"}]
+                    break
+                media_list.append({"url": url, "type": "image"})
+                if len(media_list) >= 3:
+                    break
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    except Exception as e:
+        log.warning("post upload: %s", e)
+        return jsonify({"ok": False, "error": "upload failed"}), 500
+    if privacy not in ("public", "followers", "private"):
+        privacy = "public"
+    if not text and not media_list:
+        return jsonify({"ok": False, "error": "សរសេរ ឬ ជ្រើសរូប/វីដេអូ"}), 400
     post = {
         "id": uuid.uuid4().hex[:12],
         "uid": uid_s(u["id"]),
@@ -1491,12 +1549,83 @@ def api_mini_post():
         "created": datetime.utcnow().isoformat() + "Z",
         "likes": [],
         "comments": [],
-        "media_url": media_url,
-        "media_type": media_type,
+        "views": 0,
+        "privacy": privacy,
+        "media": media_list,
+        "media_url": media_list[0]["url"] if media_list else None,
+        "media_type": media_list[0]["type"] if media_list else None,
     }
     posts.append(post)
     save_posts()
-    return jsonify({"ok": True, "post": {"id": post["id"], "text": text, "media_url": media_url, "media_type": media_type}})
+    return jsonify({"ok": True, "post": _post_item(post, uid_s(u["id"]), u)})
+
+
+@app.post("/api/mini/view")
+def api_mini_view():
+    u, err = _mini_user()
+    if err:
+        return err
+    body = request.get_json(silent=True) or {}
+    pid = str(body.get("post_id") or "")
+    for post in posts:
+        if post.get("id") == pid:
+            post["views"] = int(post.get("views") or 0) + 1
+            save_posts()
+            return jsonify({"ok": True, "views": post["views"]})
+    return jsonify({"ok": False, "error": "not found"}), 404
+
+
+@app.post("/api/mini/profile")
+def api_mini_profile_update():
+    u, err = _mini_user()
+    if err:
+        return err
+    me = uid_s(u["id"])
+    try:
+        if request.is_json:
+            body = request.get_json(silent=True) or {}
+        else:
+            body = {
+                "name": request.form.get("name"),
+                "bio": request.form.get("bio"),
+                "gender": request.form.get("gender"),
+                "age": request.form.get("age"),
+                "looking": request.form.get("looking"),
+                "city": request.form.get("city"),
+            }
+            if request.files.get("banner"):
+                url, _ = _save_upload(request.files.get("banner"), max_mb=10)
+                if url:
+                    users[me]["banner"] = url
+            if request.files.get("avatar"):
+                # store as media url in custom_avatar (photos stay from TG)
+                url, _ = _save_upload(request.files.get("avatar"), max_mb=10)
+                if url:
+                    users[me]["custom_avatar"] = url
+        if body.get("name") is not None:
+            users[me]["name"] = str(body.get("name") or "").strip()[:48] or users[me].get("name")
+        if body.get("bio") is not None:
+            users[me]["bio"] = str(body.get("bio") or "").strip()[:300]
+        if body.get("gender") in ("male", "female", "other", ""):
+            users[me]["gender"] = body.get("gender") or users[me].get("gender")
+        if body.get("looking") in ("friends", "date", "both", ""):
+            users[me]["looking"] = body.get("looking") or users[me].get("looking")
+        if body.get("city") is not None:
+            users[me]["city"] = str(body.get("city") or "").strip()[:48]
+        if body.get("age") is not None and str(body.get("age")).strip() != "":
+            try:
+                age = int(body.get("age"))
+                if 16 <= age <= 99:
+                    users[me]["age"] = age
+            except (TypeError, ValueError):
+                pass
+        save_users()
+        return jsonify({"ok": True, "profile": _public_profile(users[me])})
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    except Exception as e:
+        log.warning("profile update: %s", e)
+        return jsonify({"ok": False, "error": "update failed"}), 500
 
 
 @app.get("/api/mini/media/<path:fname>")
